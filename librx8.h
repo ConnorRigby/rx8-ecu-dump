@@ -55,4 +55,7 @@ public:
 	/** Unlock the ECU using the key calculated with `calculateKey()` */
 	size_t unlock(uint8_t* key);
 
+	/** Read memory starting at `start` and of size `chunkSize` into `data`. ECU must be `unlock()`ed for this to work. */
+	size_t readMem(uint32_t start, uint16_t chunkSize, char** data);
+
 };

@@ -14,6 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+/*
+* TODO:
+*  * every malloc should probably be `free`d in the event of an error
+*  * CAN message sending doesn't need to allocate so many messages on the stack, consider moving to heap, only 2 or 3 messages are ever in flight
+*/
+
 #include <string.h>
 #include <stdio.h>
 
@@ -383,4 +389,90 @@ size_t RX8::unlock(uint8_t* key) {
 	}
 
 	return 0;
+}
+
+size_t RX8::readMem(uint32_t start, uint16_t chunkSize, char** data)
+{
+	*data = (char*)malloc(chunkSize);
+	if (!(*data))
+		return -ENOMEM;
+	//msg = can.Message(arbitration_id = 0x7E0, data = [0x07, 0x23, 0x00, 0x00, 0x20, 0x00, 0x01, 0x00], is_extended_id = False)
+
+	unsigned long NumMsgs = 1;
+	PASSTHRU_MSG payload[2] = { 0 };
+	payload[0].ProtocolID = ISO15765;
+	payload[0].TxFlags = ISO15765_FRAME_PAD;
+	// request 7e0
+	payload[0].Data[0] = 0x0;
+	payload[0].Data[1] = 0x0;
+	payload[0].Data[2] = 0x07;
+	payload[0].Data[3] = 0xE0;
+
+	// ReadMemoryByAddress
+	payload[0].Data[4] = 0x23;
+	payload[0].Data[5] = 0x00;
+	payload[0].Data[6] = 0x00;
+	payload[0].Data[7] = 0x00;
+	payload[0].Data[8] = 0x20;
+	payload[0].Data[9] = 0x00;
+	payload[0].Data[10] = 0xff;
+	// 7E0#07 23 00 00 20 00 00 40
+
+#if 0
+	// address
+	payload[0].Data[6] = (start >> 16) & 0xff;
+	payload[0].Data[7] = (start >> 8) & 0xff;
+	payload[0].Data[8] = (start) & 0xff;
+
+	// length
+	payload[0].Data[9] = (chunkSize >> 8) & 0xff;
+	payload[0].Data[10] = (chunkSize) & 0xff;
+#endif
+	payload[0].DataSize = 11;
+
+	if (_j2534.PassThruWriteMsgs(_chanID, &payload[0], &NumMsgs, 100)) {
+		printf("failed to write messages\n");
+		reportJ2534Error(_j2534);
+		return 1;
+	}
+
+	// 0x7D000;
+
+	unsigned long numRxMsg = 1;
+	PASSTHRU_MSG rxmsg[1] = { 0 };
+	rxmsg[0].ProtocolID = ISO15765;
+	rxmsg[0].TxFlags = ISO15765_FRAME_PAD;
+
+	for (;;) {
+		if (_j2534.PassThruReadMsgs(_chanID, &rxmsg[0], &numRxMsg, 1000)) {
+			printf("failed to read messages\n");
+			reportJ2534Error(_j2534);
+			return 1;
+		}
+		if (numRxMsg) {
+			if (rxmsg[0].Data[3] == 0xE0)
+				continue;
+			
+			if (rxmsg[0].Data[3] == 0xE8) {
+				
+				if (rxmsg[0].Data[4] == 0x7f) {
+					printf("dump failed\n");
+					dump_msg(&rxmsg[0]);
+					return 1;
+				}
+				
+				else if (rxmsg[0].Data[4] == 0x63) {
+					printf("got data\n");
+					dump_msg(&rxmsg[0]);
+					return 1;
+				}
+			}
+			else {
+				printf("Unknown message\n");
+				dump_msg(&rxmsg[0]);
+				return 1;
+			}
+		}
+	}
+	return 1;
 }

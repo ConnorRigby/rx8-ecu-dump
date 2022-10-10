@@ -45,18 +45,19 @@ size_t j2534Initialize()
 
 	// use SNIFF_MODE to listen to packets without any acknowledgement or flow control
 	// use CAN_ID_BOTH to pick up both 11 and 29 bit CAN messages
-	if (j2534.PassThruConnect(devID, ISO15765, SNIFF_MODE | CAN_ID_BOTH, baudrate, &chanID))
+	if (j2534.PassThruConnect(devID, ISO15765, CAN_ID_BOTH, baudrate, &chanID))
 	{
 		reportJ2534Error(j2534);
 		return 1;
 	}
+	j2534.PassThruIoctl(chanID, CLEAR_MSG_FILTERS, NULL, NULL);
 
 	unsigned long filterID = 0;
 
 
-	PASSTHRU_MSG maskMSG{};
-	PASSTHRU_MSG maskPattern{};
-	PASSTHRU_MSG flowControlMsg{};
+	PASSTHRU_MSG maskMSG = {0};
+	PASSTHRU_MSG maskPattern = {0};
+	PASSTHRU_MSG flowControlMsg = {0};
 	for (unsigned long i = 0; i < 7; i++) {
 		maskMSG.ProtocolID = ISO15765;
 		maskMSG.TxFlags = ISO15765_FRAME_PAD;
@@ -90,7 +91,6 @@ size_t j2534Initialize()
 
 		}
 	}
-#if 0
 	maskMSG.ProtocolID = ISO15765;
 	maskMSG.TxFlags = ISO15765_FRAME_PAD;
 	maskMSG.Data[0] = 0x00;
@@ -107,16 +107,30 @@ size_t j2534Initialize()
 	maskPattern.Data[3] = 0xE8;
 	maskPattern.DataSize = 4;
 
+	//memset(maskMSG.Data, 0, 5); // mask the first 4 byte to 0
+	//memset(maskPattern.Data, 0, 5);// match it with 0 (i.e. pass everything)
 
 	if (j2534.PassThruStartMsgFilter(chanID, PASS_FILTER, &maskMSG, &maskPattern, NULL, &filterID))
 	{
-		reportJ2534Error();
+		printf("Failed to set message filter\n");
+		reportJ2534Error(j2534);
 		return 1;
 
 	}
-#endif
-	// clear buffers
-	j2534.PassThruIoctl(chanID, CLEAR_RX_BUFFER, NULL, NULL);
+
+	if (j2534.PassThruIoctl(chanID, CLEAR_TX_BUFFER, NULL, NULL))
+	{
+		printf("Failed to clear buffer\n");
+		reportJ2534Error(j2534);
+		return 1;
+	}
+
+	if (j2534.PassThruIoctl(chanID, CLEAR_RX_BUFFER, NULL, NULL)) 
+	{
+		printf("Failed to clear buffer\n");
+		reportJ2534Error(j2534);
+		return 1;
+	}
 	return 0;
 }
 
@@ -130,16 +144,15 @@ int _tmain(int argc, _TCHAR* argv[])
 
 	RX8 ecu(j2534, devID, chanID);
 	
-	char *vin, *calibrationID;
+	char *vin, *calibrationID, *dump;
 	uint8_t *seed, *key;
+#if 1
 
 	if (ecu.getVIN(&vin)) {
 		printf("failed to get VIN\n");
 		goto cleanup;
 	}
 	printf("Got VIN = %s\n", vin);
-
-	j2534.PassThruIoctl(chanID, CLEAR_RX_BUFFER, NULL, NULL);
 
 	if (ecu.getCalibrationID(&calibrationID)) {
 		printf("failed to get Calibration ID\n");
@@ -169,6 +182,14 @@ int _tmain(int argc, _TCHAR* argv[])
 		goto cleanup;
 	}
 	printf("Unlocked ECU\n");
+#endif
+	printf("Starting Dump\n");
+	
+	if (ecu.readMem(0x0, 0x05, &dump)) {
+		printf("Failed to dump ROM\n");
+		goto cleanup;
+	}
+	printf("Dump complete\n");
 
 cleanup:
 	// shut down the channel
