@@ -131,12 +131,13 @@ int _tmain(int argc, _TCHAR* argv[])
 	RX8 ecu(j2534, devID, chanID);
 	
 	char *vin, *calibrationID;
+	uint8_t *seed, *key;
 
 	if (ecu.getVIN(&vin)) {
 		printf("failed to get VIN\n");
 		goto cleanup;
 	}
-	printf("VIN = %s\n", vin);
+	printf("Got VIN = %s\n", vin);
 
 	j2534.PassThruIoctl(chanID, CLEAR_RX_BUFFER, NULL, NULL);
 
@@ -144,8 +145,25 @@ int _tmain(int argc, _TCHAR* argv[])
 		printf("failed to get Calibration ID\n");
 		goto cleanup;
 	}
-	printf("Calibration ID = %s\n", calibrationID);
-	
+	printf("Got calibration ID = %s\n", calibrationID);
+
+	if (!ecu.initDiagSession()) {
+		printf("failed to init diag session\n");
+		goto cleanup;
+	}
+	printf("diag sesion initialized ok\n");
+
+	if (ecu.getSeed(&seed)) {
+		printf("failed to get seed\n");
+		goto cleanup;
+	}
+	printf("Got seed = { %02X, %02X, %02X }\n", seed[0], seed[1], seed[2]);
+	if (ecu.calculateKey(seed, &key)) {
+		printf("failed to calculate key\n");
+		goto cleanup;
+	}
+	printf("Got key = { %02X, %02X, %02X }\n", key[0], key[1], key[2]);
+
 
 cleanup:
 	// shut down the channel

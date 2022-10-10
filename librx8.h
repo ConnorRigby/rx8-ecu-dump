@@ -20,7 +20,11 @@ limitations under the License.
 // 17 characters + a null terminator
 #define VIN_LENGTH 18
 
+// unsure if this value will ever change..
 #define CALIBRATION_ID_LENGTH 19
+
+// 3 uint8s
+#define SEED_LENGTH 3
 
 class RX8
 {
@@ -35,5 +39,17 @@ public:
 
 	/** Get the VIN stored in the ECU*/
 	size_t getVIN(char** vin);
+
+	/** Get the Calibration ID */
 	size_t getCalibrationID(char** calibrationID);
+	
+	/** Initialize a diag session with the ECU */
+	size_t initDiagSession();
+
+	/** Request a seed to be used in the key handshake */
+	size_t getSeed(uint8_t** seed);
+
+	/** Calculate the key using the seed from the `getSeed` function */
+	static size_t calculateKey(uint8_t* seedInput, uint8_t** keyOut);
+
 };
