@@ -130,12 +130,22 @@ int _tmain(int argc, _TCHAR* argv[])
 
 	RX8 ecu(j2534, devID, chanID);
 	
-	char* vin;
+	char *vin, *calibrationID;
+
 	if (ecu.getVIN(&vin)) {
 		printf("failed to get VIN\n");
 		goto cleanup;
 	}
-	printf("vin=%s\n", vin);
+	printf("VIN = %s\n", vin);
+
+	j2534.PassThruIoctl(chanID, CLEAR_RX_BUFFER, NULL, NULL);
+
+	if (ecu.getCalibrationID(&calibrationID)) {
+		printf("failed to get Calibration ID\n");
+		goto cleanup;
+	}
+	printf("Calibration ID = %s\n", calibrationID);
+	
 
 cleanup:
 	// shut down the channel

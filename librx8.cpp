@@ -110,3 +110,79 @@ size_t RX8::getVIN(char** vin)
 	// probably not possible?
 	return 1;
 }
+
+size_t RX8::getCalibrationID(char** calibrationID)
+{
+	*calibrationID = (char*)malloc(CALIBRATION_ID_LENGTH);
+	if (!(*calibrationID))
+		return -ENOMEM;
+
+	// clear buffer
+	memset(*calibrationID, 0, CALIBRATION_ID_LENGTH);
+
+	unsigned long NumMsgs = 2;
+	PASSTHRU_MSG payload[2] = { 0 };
+	for (int i = 0; i < 2; i++) {
+		payload[i].ProtocolID = ISO15765;
+		payload[i].TxFlags = ISO15765_FRAME_PAD;
+		// request 7e0
+		payload[i].Data[0] = 0x0;
+		payload[i].Data[1] = 0x0;
+		payload[i].Data[2] = 0x07;
+		payload[i].Data[3] = 0xE0;
+	}
+
+	payload[0].Data[4] = 0x09;
+	payload[0].Data[5] = 0x04;
+	payload[0].DataSize = 6;
+
+	payload[1].ProtocolID = CAN;
+	payload[1].TxFlags = ISO15765_ADDR_TYPE;
+	payload[1].DataSize = 12;
+	payload[1].Data[0] = 0x0;
+	payload[1].Data[1] = 0x0;
+	payload[1].Data[2] = 0x07;
+	payload[1].Data[3] = 0xE0;
+	payload[1].Data[4] = 0x30;
+	payload[1].Data[5] = 0x00;
+	payload[1].Data[6] = 0x00;
+	payload[1].Data[7] = 0x00;
+
+	if (_j2534.PassThruWriteMsgs(_chanID, &payload[0], &NumMsgs, 100)) {
+		printf("failed to write messages\n");
+		reportJ2534Error(_j2534);
+		return 1;
+	}
+
+	unsigned long numRxMsg = 1;
+	PASSTHRU_MSG rxmsg[1] = { 0 };
+	rxmsg[0].ProtocolID = ISO15765;
+	rxmsg[0].TxFlags = ISO15765_FRAME_PAD;
+
+	for (;;) {
+		if (_j2534.PassThruReadMsgs(_chanID, &rxmsg[0], &numRxMsg, 1000)) {
+			printf("failed to read messages\n");
+			reportJ2534Error(_j2534);
+			return 1;
+		}
+		if (numRxMsg) {
+			if (rxmsg[0].Data[3] == 0xE0)
+				continue;
+			if (rxmsg[0].Data[3] == 0xE8) {
+				if (rxmsg[0].Data[4] == 0x49) {
+					for (size_t i = 0, j = 7; j < rxmsg[0].DataSize; i++, j++) {
+						(*calibrationID)[i] = rxmsg[0].Data[j];
+					}
+					return 0;
+				}
+			}
+			else {
+				printf("Unknown message\n");
+				dump_msg(&rxmsg[0]);
+				return 1;
+			}
+		}
+	}
+
+	return 1;
+}

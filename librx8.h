@@ -20,6 +20,8 @@ limitations under the License.
 // 17 characters + a null terminator
 #define VIN_LENGTH 18
 
+#define CALIBRATION_ID_LENGTH 19
+
 class RX8
 {
 private:
@@ -33,4 +35,5 @@ public:
 
 	/** Get the VIN stored in the ECU*/
 	size_t getVIN(char** vin);
+	size_t getCalibrationID(char** calibrationID);
 };
