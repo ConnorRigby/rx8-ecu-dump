@@ -332,3 +332,55 @@ size_t RX8::calculateKey(uint8_t* seedInput, uint8_t** keyOut)
 	(*keyOut)[2] = key & 0xff;
 	return 0;
 }
+
+size_t RX8::unlock(uint8_t* key) {
+	unsigned long NumMsgs = 1;
+	PASSTHRU_MSG payload[1] = { 0 };
+	payload[0].ProtocolID = ISO15765;
+	payload[0].TxFlags = ISO15765_FRAME_PAD;
+	// request 7e0
+	payload[0].Data[0] = 0x0;
+	payload[0].Data[1] = 0x0;
+	payload[0].Data[2] = 0x07;
+	payload[0].Data[3] = 0xE0;
+
+	payload[0].Data[4] = 0x27;
+	payload[0].Data[5] = 0x02;
+	payload[0].Data[6] = key[0];
+	payload[0].Data[7] = key[1];
+	payload[0].Data[8] = key[2];
+	payload[0].DataSize = 9;
+
+	if (_j2534.PassThruWriteMsgs(_chanID, &payload[0], &NumMsgs, 100)) {
+		printf("failed to write messages\n");
+		reportJ2534Error(_j2534);
+		return 0;
+	}
+
+	unsigned long numRxMsg = 1;
+	PASSTHRU_MSG rxmsg[1] = { 0 };
+	rxmsg[0].ProtocolID = ISO15765;
+	rxmsg[0].TxFlags = ISO15765_FRAME_PAD;
+
+	for (;;) {
+		if (_j2534.PassThruReadMsgs(_chanID, &rxmsg[0], &numRxMsg, 1000)) {
+			printf("failed to read messages\n");
+			reportJ2534Error(_j2534);
+			return 0;
+		}
+		if (numRxMsg) {
+			if (rxmsg[0].Data[3] == 0xE0)
+				continue;
+			if (rxmsg[0].Data[3] == 0xE8) {
+				return (rxmsg[0].Data[4] == 0x67) && (rxmsg[0].Data[5] == 0x02);
+			}
+			else {
+				printf("Unknown message\n");
+				dump_msg(&rxmsg[0]);
+				return 0;
+			}
+		}
+	}
+
+	return 0;
+}

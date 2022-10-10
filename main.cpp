@@ -163,7 +163,12 @@ int _tmain(int argc, _TCHAR* argv[])
 		goto cleanup;
 	}
 	printf("Got key = { %02X, %02X, %02X }\n", key[0], key[1], key[2]);
-
+	
+	if (!ecu.unlock(key)) {
+		printf("failed to unlock ECU using key\n");
+		goto cleanup;
+	}
+	printf("Unlocked ECU\n");
 
 cleanup:
 	// shut down the channel

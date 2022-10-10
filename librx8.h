@@ -49,7 +49,10 @@ public:
 	/** Request a seed to be used in the key handshake */
 	size_t getSeed(uint8_t** seed);
 
-	/** Calculate the key using the seed from the `getSeed` function */
+	/** Calculate the key using the seed from the `getSeed()` function */
 	static size_t calculateKey(uint8_t* seedInput, uint8_t** keyOut);
+
+	/** Unlock the ECU using the key calculated with `calculateKey()` */
+	size_t unlock(uint8_t* key);
 
 };
