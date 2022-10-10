@@ -90,7 +90,17 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\common\J2534.cpp" />
+    <ClCompile Include="librx8.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="util.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="LICENSE.md" />
+    <None Include="README.md" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="librx8.h" />
+    <ClInclude Include="util.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

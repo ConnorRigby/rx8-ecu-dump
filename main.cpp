@@ -22,135 +22,33 @@ limitations under the License.
 
 #include "..\common\J2534.h"
 
+#include "librx8.h"
+#include "util.h"
+
 J2534 j2534;
-unsigned long devID;
-unsigned long chanID;
+unsigned long devID, chanID;
 unsigned int baudrate = 500000;
 
-void reportJ2534Error()
-{
-	char err[512];
-	j2534.PassThruGetLastError(err);
-	printf("J2534 error [%s].\n",err);
-}
-
-void dump_msg(PASSTHRU_MSG* msg)
-{
-	if (msg->RxStatus & START_OF_MESSAGE)
-		return;
-	printf("[%u] ", msg->Timestamp);
-	for (unsigned int i = 0; i < msg->DataSize; i++)
-		printf("%02X ", msg->Data[i]);
-	printf("\n");
-}
-
-// 17 characters + a null terminator
-#define VIN_LENGTH 18
-
-/* Fills buffer `vin` with the vin. returns 0 on success */
-size_t getVIN(char** vin)
-{
-	*vin = (char*)malloc(VIN_LENGTH);
-	if (!(*vin))
-		return -ENOMEM;
-
-	// clear buffer
-	memset(*vin, 0, VIN_LENGTH);
-
-	PASSTHRU_MSG getVIN[5] = { 0 };
-	for (int i = 0; i < 5; i++) {
-		getVIN[i].ProtocolID = ISO15765;
-		getVIN[i].TxFlags = ISO15765_FRAME_PAD;
-		// request 7e0
-		getVIN[i].Data[0] = 0x0;
-		getVIN[i].Data[1] = 0x0;
-		getVIN[i].Data[2] = 0x07;
-		getVIN[i].Data[3] = 0xE0;
-	}
-
-	getVIN[0].Data[4] = 0x01;
-	getVIN[0].Data[5] = 0x0c;
-	getVIN[0].DataSize = 6;
-
-	getVIN[1].Data[4] = 0x09;
-	getVIN[1].Data[5] = 0x02;
-	getVIN[1].DataSize = 6;
-
-	getVIN[2].ProtocolID = CAN;
-	getVIN[2].TxFlags = ISO15765_ADDR_TYPE;
-	getVIN[2].DataSize = 12;
-	getVIN[2].Data[0] = 0x0;
-	getVIN[2].Data[1] = 0x0;
-	getVIN[2].Data[2] = 0x07;
-	getVIN[2].Data[3] = 0xE0;
-	getVIN[2].Data[4] = 0x30;
-	getVIN[2].Data[5] = 0x00;
-	getVIN[2].Data[6] = 0x00;
-	getVIN[2].Data[7] = 0x00;
-
-	unsigned long NumMsgs = 2;
-	if (j2534.PassThruWriteMsgs(chanID, &getVIN[1], &NumMsgs, 100)) {
-		printf("failed to write messages\n");
-		reportJ2534Error();
-		return 1;
-	}
-
-	//JM1FE173370212600
-	// 4a 4d 31 46 45 31 37 33 33 37 30 32 31 32 36 30 30
-
-	unsigned long numRxMsg = 1;
-	PASSTHRU_MSG rxmsg[1] = {0};
-	rxmsg[0].ProtocolID = ISO15765;
-	rxmsg[0].TxFlags = ISO15765_FRAME_PAD;
-
-	for (;;) {
-		if (j2534.PassThruReadMsgs(chanID, &rxmsg[0], &numRxMsg, 1000)) {
-			printf("failed to read messages\n");
-			reportJ2534Error();
-			return 1;
-		}
-		if (numRxMsg) {
-			if (rxmsg[0].Data[3] == 0xE0)
-				continue;
-			if (rxmsg[0].Data[3] == 0xE8) {
-				if (rxmsg[0].Data[4] == 0x49) {
-					for (size_t i = 0,j=7; j < rxmsg[0].DataSize; i++,j++) {
-						(*vin)[i] = rxmsg[0].Data[j];
-					}
-					return 0;
-				}
-			}
-			else {
-				printf("Unknown message\n");
-				dump_msg(&rxmsg[0]);
-				return 1;
-			}
-		}
-	}
-	// probably not possible?
-	return 1;
-}
-
-int _tmain(int argc, _TCHAR* argv[])
+size_t j2534Initialize()
 {
 	if (!j2534.init())
 	{
 		printf("can't connect to J2534 DLL.\n");
-		return 0;
+		return 1;
 	}
 
-	if (j2534.PassThruOpen(NULL,&devID))
+	if (j2534.PassThruOpen(NULL, &devID))
 	{
-		reportJ2534Error();
-		return 0;
+		reportJ2534Error(j2534);
+		return 1;
 	}
 
 	// use SNIFF_MODE to listen to packets without any acknowledgement or flow control
 	// use CAN_ID_BOTH to pick up both 11 and 29 bit CAN messages
-	if (j2534.PassThruConnect(devID, ISO15765,SNIFF_MODE|CAN_ID_BOTH,baudrate,&chanID))
+	if (j2534.PassThruConnect(devID, ISO15765, SNIFF_MODE | CAN_ID_BOTH, baudrate, &chanID))
 	{
-		reportJ2534Error();
-		return 0;
+		reportJ2534Error(j2534);
+		return 1;
 	}
 
 	unsigned long filterID = 0;
@@ -185,10 +83,10 @@ int _tmain(int argc, _TCHAR* argv[])
 		flowControlMsg.DataSize = 4;
 
 
-		if (j2534.PassThruStartMsgFilter(chanID, FLOW_CONTROL_FILTER,&maskMSG,&maskPattern,&flowControlMsg,&filterID))
+		if (j2534.PassThruStartMsgFilter(chanID, FLOW_CONTROL_FILTER, &maskMSG, &maskPattern, &flowControlMsg, &filterID))
 		{
-			reportJ2534Error();
-			return 0;
+			reportJ2534Error(j2534);
+			return 1;
 
 		}
 	}
@@ -213,25 +111,37 @@ int _tmain(int argc, _TCHAR* argv[])
 	if (j2534.PassThruStartMsgFilter(chanID, PASS_FILTER, &maskMSG, &maskPattern, NULL, &filterID))
 	{
 		reportJ2534Error();
-		return 0;
+		return 1;
 
 	}
 #endif
 	// clear buffers
 	j2534.PassThruIoctl(chanID, CLEAR_RX_BUFFER, NULL, NULL);
+	return 0;
+}
 
+int _tmain(int argc, _TCHAR* argv[])
+{
+	if (j2534Initialize()) {
+		printf("j2534Initialize() failed\n");
+		return 1;
+	}
+	printf("j2534 connection initialized ok\n");
+
+	RX8 ecu(j2534, devID, chanID);
+	
 	char* vin;
-	if (getVIN(&vin)) {
+	if (ecu.getVIN(&vin)) {
 		printf("failed to get VIN\n");
 		goto cleanup;
 	}
-	printf("vin=%s %d\n", vin, strlen(vin));
+	printf("vin=%s\n", vin);
 
 cleanup:
 	// shut down the channel
 	if (j2534.PassThruDisconnect(chanID))
 	{
-		reportJ2534Error();
+		reportJ2534Error(j2534);
 		return 0;
 	}
 
@@ -239,7 +149,7 @@ cleanup:
 
 	if (j2534.PassThruClose(devID))
 	{
-		reportJ2534Error();
+		reportJ2534Error(j2534);
 		return 0;
 	}
 	return 0;
