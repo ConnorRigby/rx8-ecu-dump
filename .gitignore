@@ -1,8 +1,5 @@
 # Build output
 /Debug
 
-# closed source reference material. Can't be shared unfortunately
-/lib
-
 # visual studio stuff
 .vs

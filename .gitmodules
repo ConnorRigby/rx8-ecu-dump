@@ -1,0 +1,3 @@
+[submodule "lib/j2534"]
+	path = lib/j2534
+	url = git@github.com:dschultzca/j2534.git
