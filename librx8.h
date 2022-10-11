@@ -16,15 +16,40 @@ limitations under the License.
 #pragma once
 
 #include <stdint.h>
+#include "..\common\J2534.h"
 
 // 17 characters + a null terminator
-#define VIN_LENGTH 18
+static const uint8_t VIN_LENGTH = 18;
 
 // unsure if this value will ever change..
-#define CALIBRATION_ID_LENGTH 19
+static const uint8_t CALIBRATION_ID_LENGTH = 19;
 
 // 3 uint8s
-#define SEED_LENGTH 3
+static const uint8_t SEED_LENGTH = 3;
+
+// number of tx PASSTHRU_MSG structs to keep around
+static const uint8_t TX_BUFFER_LEN = 5;
+static const uint8_t TX_TIMEOUT = 100;
+
+// number of rx PASSTHRU_MSG structs to keep around
+static const size_t RX_BUFFER_LEN = 5;
+static const size_t RX_TIMEOUT = 200;
+ 
+#define MAZDA_KEY_SECRET {0x4d, 0x61, 0x7a, 0x64, 0x41} // M a z d A
+//#define MAZDA_KEY_SECRET {'M', 'a', 'z', 'd', 'A'}
+
+static const uint8_t MAZDA_REQUEST_CANID_MSB  = 0x07;
+static const uint8_t MAZDA_REQUEST_CANID_LSB  = 0xE0;
+static const uint8_t MAZDA_RESPONSE_CANID_MSB = MAZDA_REQUEST_CANID_MSB;
+static const uint8_t MAZDA_RESPONSE_CANID_LSB = 0xE8;
+
+// extensions of UDS, not offical spec, so namespaced as such
+
+static const uint8_t MAZDA_SBF_REQUEST_SEED = 0x01;
+static const uint8_t MAZDA_SBF_CHECK_KEY    = 0x02;
+static const uint8_t MAZDA_SBF_SESSION_81   = 0x81;
+static const uint8_t MAZDA_SBF_SESSION_85   = 0x85;
+static const uint8_t MAZDA_SBF_SESSION_87   = 0x87;
 
 class RX8
 {
@@ -32,9 +57,10 @@ private:
 	J2534 _j2534;
 	unsigned long _devID;
 	unsigned long _chanID;
+	PASSTHRU_MSG  _tx_payload[TX_BUFFER_LEN];
+	PASSTHRU_MSG  _rx_payload[RX_BUFFER_LEN];
 
 public:
-	// initializer
 	RX8(J2534& j2534, unsigned long devID, unsigned long chanID);
 
 	/** Get the VIN stored in the ECU*/
@@ -59,3 +85,6 @@ public:
 	size_t readMem(uint32_t start, uint16_t chunkSize, char** data);
 
 };
+
+// clears the tx and rx buffers for use in a single request/response cycle
+static size_t prepareUDSRequest(PASSTHRU_MSG* tx_buffer, PASSTHRU_MSG* rx_buffer, size_t numTx, size_t numRx);

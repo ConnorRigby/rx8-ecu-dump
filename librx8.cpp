@@ -14,234 +14,180 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-/*
-* TODO:
-*  * every malloc should probably be `free`d in the event of an error
-*  * CAN message sending doesn't need to allocate so many messages on the stack, consider moving to heap, only 2 or 3 messages are ever in flight
-*/
-
 #include <string.h>
 #include <stdio.h>
+#include <assert.h>
 
 #include "..\common\J2534.h"
 
 #include "librx8.h"
+#include "UDS.h"
+#include "OBD2.h"
 #include "util.h"
 
-RX8::RX8(J2534& j2534, unsigned long devID, unsigned long chanID) {
+static const char* TAG = "RX8";
+
+RX8::RX8(J2534& j2534, unsigned long devID, unsigned long chanID)
+{
 	_j2534 = j2534;
 	_devID = devID;
 	_chanID = chanID;
-}
 
+	// initialize payload buffers to something noticable in memory
+	// to make debugging easier
+	memset(_tx_payload, 255, sizeof(PASSTHRU_MSG) * TX_BUFFER_LEN);
+	memset(_rx_payload, 255, sizeof(PASSTHRU_MSG) * RX_BUFFER_LEN);
+}
 
 /* Fills buffer `vin` with the vin. returns 0 on success */
 size_t RX8::getVIN(char** vin)
 {
 	*vin = (char*)malloc(VIN_LENGTH);
-	if (!(*vin))
-		return -ENOMEM;
-
-	// clear buffer
+	if (!(*vin)) return -ENOMEM;
 	memset(*vin, 0, VIN_LENGTH);
 
-	unsigned long NumMsgs = 2;
-	PASSTHRU_MSG getVIN[3] = { 0 };
-	for (int i = 0; i < 3; i++) {
-		getVIN[i].ProtocolID = ISO15765;
-		getVIN[i].TxFlags = ISO15765_FRAME_PAD;
-		// request 7e0
-		getVIN[i].Data[0] = 0x0;
-		getVIN[i].Data[1] = 0x0;
-		getVIN[i].Data[2] = 0x07;
-		getVIN[i].Data[3] = 0xE0;
-	}
+	unsigned long numTx=1, numRx=1;
+	prepareUDSRequest(_tx_payload, _rx_payload, numTx, numRx);
+	_tx_payload[0].Data[4] = OBD2_SID_REQUEST_VEHICLE_INFORMATION;
+	_tx_payload[0].Data[5] = OBD2_PID_REQUEST_VIN;
+	_tx_payload[0].DataSize = 6;
 
-	getVIN[0].Data[4] = 0x01;
-	getVIN[0].Data[5] = 0x0c;
-	getVIN[0].DataSize = 6;
-
-	getVIN[1].Data[4] = 0x09;
-	getVIN[1].Data[5] = 0x02;
-	getVIN[1].DataSize = 6;
-
-	getVIN[2].ProtocolID = CAN;
-	getVIN[2].TxFlags = ISO15765_ADDR_TYPE;
-	getVIN[2].DataSize = 12;
-	getVIN[2].Data[0] = 0x0;
-	getVIN[2].Data[1] = 0x0;
-	getVIN[2].Data[2] = 0x07;
-	getVIN[2].Data[3] = 0xE0;
-	getVIN[2].Data[4] = 0x30;
-	getVIN[2].Data[5] = 0x00;
-	getVIN[2].Data[6] = 0x00;
-	getVIN[2].Data[7] = 0x00;
-
-	if (_j2534.PassThruWriteMsgs(_chanID, &getVIN[1], &NumMsgs, 100)) {
-		printf("failed to write messages\n");
+	if (_j2534.PassThruWriteMsgs(_chanID, &_tx_payload[0], &numTx, TX_TIMEOUT)) {
+		LOGE(TAG, "[getVIN] failed to write messages");
 		reportJ2534Error(_j2534);
-		return 1;
+		goto cleanup;
 	}
-
-	unsigned long numRxMsg = 1;
-	PASSTHRU_MSG rxmsg[1] = { 0 };
-	rxmsg[0].ProtocolID = ISO15765;
-	rxmsg[0].TxFlags = ISO15765_FRAME_PAD;
 
 	for (;;) {
-		if (_j2534.PassThruReadMsgs(_chanID, &rxmsg[0], &numRxMsg, 1000)) {
-			printf("failed to read messages\n");
+		if (_j2534.PassThruReadMsgs(_chanID, &_rx_payload[0], &numRx, RX_TIMEOUT)) {
+			LOGE(TAG, "[getVIN] failed to read messages");
 			reportJ2534Error(_j2534);
-			return 1;
+			goto cleanup;
 		}
-		if (numRxMsg) {
-			if (rxmsg[0].Data[3] == 0xE0)
-				continue;
-			if (rxmsg[0].Data[3] == 0xE8) {
-				if (rxmsg[0].Data[4] == 0x49) {
-					for (size_t i = 0, j = 7; j < rxmsg[0].DataSize; i++, j++) {
-						(*vin)[i] = rxmsg[0].Data[j];
-					}
+		if (numRx) {
+			if (_rx_payload[0].RxStatus & START_OF_MESSAGE) continue;
+			if (_rx_payload[0].Data[3] == MAZDA_REQUEST_CANID_LSB) continue;
+			if ((_rx_payload[0].Data[3] == MAZDA_RESPONSE_CANID_LSB) && (_rx_payload[0].Data[4] == OBD2_NEGATIVE_RESPONSE)) {
+				LOGE(TAG, "[getVIN] unknown error");
+				dump_msg(&_rx_payload[0]);
+				goto cleanup;
+			}
+
+			if (_rx_payload[0].Data[3] == MAZDA_RESPONSE_CANID_LSB) {
+				if (_rx_payload[0].Data[4] == OBD2_SID_REQUEST_VEHICLE_INFORMATION_ACK) {
+					for (uint8_t i = 0, j = 7; j < _rx_payload[0].DataSize; i++, j++)
+						(*vin)[i] = _rx_payload[0].Data[j];
 					return 0;
 				}
 			}
-			else {
-				printf("Unknown message\n");
-				dump_msg(&rxmsg[0]);
-				return 1;
-			}
+
+			LOGE(TAG, "[getVIN] Unknown message");
+			dump_msg(&_rx_payload[0]);
+			goto cleanup;
 		}
 	}
 
-	// probably not possible?
+cleanup:
+	if((*vin) != NULL)
+		free(*vin);
+	*vin = NULL;
 	return 1;
 }
 
 size_t RX8::getCalibrationID(char** calibrationID)
 {
 	*calibrationID = (char*)malloc(CALIBRATION_ID_LENGTH);
-	if (!(*calibrationID))
-		return -ENOMEM;
-
-	// clear buffer
+	if (!(*calibrationID)) return -ENOMEM;
 	memset(*calibrationID, 0, CALIBRATION_ID_LENGTH);
 
-	unsigned long NumMsgs = 2;
-	PASSTHRU_MSG payload[2] = { 0 };
-	for (int i = 0; i < 2; i++) {
-		payload[i].ProtocolID = ISO15765;
-		payload[i].TxFlags = ISO15765_FRAME_PAD;
-		// request 7e0
-		payload[i].Data[0] = 0x0;
-		payload[i].Data[1] = 0x0;
-		payload[i].Data[2] = 0x07;
-		payload[i].Data[3] = 0xE0;
-	}
+	unsigned long numTx = 1, numRx = 1;
+	prepareUDSRequest(_tx_payload, _rx_payload, numTx, numRx);
+	_tx_payload[0].Data[4] = OBD2_SID_REQUEST_VEHICLE_INFORMATION;
+	_tx_payload[0].Data[5] = OBD2_PID_REQUEST_CALID;
+	_tx_payload[0].DataSize = 6;
 
-	payload[0].Data[4] = 0x09;
-	payload[0].Data[5] = 0x04;
-	payload[0].DataSize = 6;
-
-	payload[1].ProtocolID = CAN;
-	payload[1].TxFlags = ISO15765_ADDR_TYPE;
-	payload[1].DataSize = 12;
-	payload[1].Data[0] = 0x0;
-	payload[1].Data[1] = 0x0;
-	payload[1].Data[2] = 0x07;
-	payload[1].Data[3] = 0xE0;
-	payload[1].Data[4] = 0x30;
-	payload[1].Data[5] = 0x00;
-	payload[1].Data[6] = 0x00;
-	payload[1].Data[7] = 0x00;
-
-	if (_j2534.PassThruWriteMsgs(_chanID, &payload[0], &NumMsgs, 100)) {
-		printf("failed to write messages\n");
+	if (_j2534.PassThruWriteMsgs(_chanID, &_tx_payload[0], &numTx, TX_TIMEOUT)) {
+		LOGE(TAG, "[getCalibrationID] failed to write messages");
 		reportJ2534Error(_j2534);
-		return 1;
+		goto cleanup;
 	}
-
-	unsigned long numRxMsg = 1;
-	PASSTHRU_MSG rxmsg[1] = { 0 };
-	rxmsg[0].ProtocolID = ISO15765;
-	rxmsg[0].TxFlags = ISO15765_FRAME_PAD;
 
 	for (;;) {
-		if (_j2534.PassThruReadMsgs(_chanID, &rxmsg[0], &numRxMsg, 1000)) {
-			printf("failed to read messages\n");
+		if (_j2534.PassThruReadMsgs(_chanID, &_rx_payload[0], &numRx, RX_TIMEOUT)) {
+			LOGE(TAG, "[getCalibrationID] failed to read messages");
 			reportJ2534Error(_j2534);
-			return 1;
+			goto cleanup;
 		}
-		if (numRxMsg) {
-			if (rxmsg[0].Data[3] == 0xE0)
-				continue;
-			if (rxmsg[0].Data[3] == 0xE8) {
-				if (rxmsg[0].Data[4] == 0x49) {
-					for (size_t i = 0, j = 7; j < rxmsg[0].DataSize; i++, j++) {
-						(*calibrationID)[i] = rxmsg[0].Data[j];
-					}
+		if (numRx) {
+			if (_rx_payload[0].RxStatus & START_OF_MESSAGE) continue;
+			if (_rx_payload[0].Data[3] == MAZDA_REQUEST_CANID_LSB) continue;
+			if ((_rx_payload[0].Data[3] == MAZDA_RESPONSE_CANID_LSB) && (_rx_payload[0].Data[4] == OBD2_NEGATIVE_RESPONSE)) {
+				LOGE(TAG, "[getCalibrationID] unknown error");
+				dump_msg(&_rx_payload[0]);
+				goto cleanup;
+			}
+
+			if (_rx_payload[0].Data[3] == MAZDA_RESPONSE_CANID_LSB) {
+				if (_rx_payload[0].Data[4] == OBD2_SID_REQUEST_VEHICLE_INFORMATION_ACK) {
+					for (size_t i = 0, j = 7; j < _rx_payload[0].DataSize; i++, j++)
+						(*calibrationID)[i] = _rx_payload[0].Data[j];
 					return 0;
 				}
 			}
-			else {
-				printf("Unknown message\n");
-				dump_msg(&rxmsg[0]);
-				return 1;
-			}
+
+			LOGE(TAG, "[getCalibrationID] Unknown message");
+			dump_msg(&_rx_payload[0]);
+			goto cleanup;
 		}
 	}
 
+cleanup:
+	if ((*calibrationID) != NULL)
+		free(*calibrationID);
+	*calibrationID = NULL;
 	return 1;
 }
 
 size_t RX8::initDiagSession()
 {
-	unsigned long NumMsgs = 1;
-	PASSTHRU_MSG payload[1] = { 0 };
-	payload[0].ProtocolID = ISO15765;
-	payload[0].TxFlags = ISO15765_FRAME_PAD;
-	
-	// request 7e0
-	payload[0].Data[0] = 0x0;
-	payload[0].Data[1] = 0x0;
-	payload[0].Data[2] = 0x07;
-	payload[0].Data[3] = 0xE0;
+	unsigned long numTx = 1, numRx = 1;
+	prepareUDSRequest(_tx_payload, _rx_payload, numTx, numRx);
+	_tx_payload[0].Data[4] = UDS_SID_SESSION;
+	_tx_payload[0].Data[5] = MAZDA_SBF_SESSION_87;
+	_tx_payload[0].DataSize = 6;
 
-	// diag session init
-	payload[0].Data[4] = 0x10;
-	payload[0].Data[5] = 0x87;
-	payload[0].DataSize = 6;
-
-	if (_j2534.PassThruWriteMsgs(_chanID, &payload[0], &NumMsgs, 100)) {
-		printf("failed to write messages\n");
+	if (_j2534.PassThruWriteMsgs(_chanID, &_tx_payload[0], &numTx, TX_TIMEOUT)) {
+		LOGE(TAG, "[initDiagSession] failed to write messages");
 		reportJ2534Error(_j2534);
 		return 0;
 	}
 
-	unsigned long numRxMsg = 1;
-	PASSTHRU_MSG rxmsg[1] = { 0 };
-	rxmsg[0].ProtocolID = ISO15765;
-	rxmsg[0].TxFlags = ISO15765_FRAME_PAD;
-
 	for (;;) {
-		if (_j2534.PassThruReadMsgs(_chanID, &rxmsg[0], &numRxMsg, 1000)) {
-			printf("failed to read messages\n");
+		if (_j2534.PassThruReadMsgs(_chanID, &_rx_payload[0], &numRx, RX_TIMEOUT)) {
+			LOGE(TAG, "[initDiagSession] failed to read messages");
 			reportJ2534Error(_j2534);
 			return 0;
 		}
-		if (numRxMsg) {
-			if (rxmsg[0].Data[3] == 0xE0)
-				continue;
-			if (rxmsg[0].Data[3] == 0xE8) {
-				return (rxmsg[0].Data[4] == 0x50) && (rxmsg[0].Data[5] == 0x87);
-			}
-			else {
-				printf("Unknown message\n");
-				dump_msg(&rxmsg[0]);
+		
+		if (numRx) {
+			if (_rx_payload[0].RxStatus & START_OF_MESSAGE) continue;
+			if (_rx_payload[0].Data[3] == MAZDA_REQUEST_CANID_LSB) continue;
+			if ((_rx_payload[0].Data[3] == MAZDA_RESPONSE_CANID_LSB) && (_rx_payload[0].Data[4] == UDS_NEGATIVE_RESPONSE)) {
+				LOGE(TAG, "[getSeed] unknown error");
+				dump_msg(&_rx_payload[0]);
 				return 0;
 			}
+
+			if (_rx_payload[0].Data[3] == MAZDA_RESPONSE_CANID_LSB)
+				return (_rx_payload[0].Data[4] == UDS_SID_SESSION_ACK) && (_rx_payload[0].Data[5] == MAZDA_SBF_SESSION_87);
+
+			LOGE(TAG, "[initDiagSession] Unknown message");
+			dump_msg(&_rx_payload[0]);
+			return 0;
 		}
 	}
 
+	// unreachable
 	return 0;
 }
 
@@ -249,73 +195,63 @@ size_t RX8::initDiagSession()
 size_t RX8::getSeed(uint8_t** seed)
 {
 	*seed = (uint8_t*)malloc(SEED_LENGTH);
-	if (!(*seed))
-		return -ENOMEM;
-
-	// clear buffer
+	if (!(*seed)) return -ENOMEM;
 	memset(*seed, 0, SEED_LENGTH);
 
-	unsigned long NumMsgs = 1;
-	PASSTHRU_MSG payload[1] = { 0 };
-	payload[0].ProtocolID = ISO15765;
-	payload[0].TxFlags = ISO15765_FRAME_PAD;
-	// request 7e0
-	payload[0].Data[0] = 0x0;
-	payload[0].Data[1] = 0x0;
-	payload[0].Data[2] = 0x07;
-	payload[0].Data[3] = 0xE0;
+	unsigned long numTx = 1, numRx = 1;
+	prepareUDSRequest(_tx_payload, _rx_payload, numTx, numRx);
+	_tx_payload[0].Data[4] = UDS_SID_SECURITY;
+	_tx_payload[0].Data[5] = MAZDA_SBF_REQUEST_SEED;
+	_tx_payload[0].DataSize = 6;
 
-	payload[0].Data[4] = 0x27;
-	payload[0].Data[5] = 0x01;
-	payload[0].DataSize = 6;
-
-
-	if (_j2534.PassThruWriteMsgs(_chanID, &payload[0], &NumMsgs, 100)) {
-		printf("failed to write messages\n");
+	if (_j2534.PassThruWriteMsgs(_chanID, &_tx_payload[0], &numTx, TX_TIMEOUT)) {
+		LOGE(TAG, "[getSeed] failed to write messages");
 		reportJ2534Error(_j2534);
-		return 1;
+		goto cleanup;
 	}
 
-	unsigned long numRxMsg = 1;
-	PASSTHRU_MSG rxmsg[1] = { 0 };
-	rxmsg[0].ProtocolID = ISO15765;
-	rxmsg[0].TxFlags = ISO15765_FRAME_PAD;
-
 	for (;;) {
-		if (_j2534.PassThruReadMsgs(_chanID, &rxmsg[0], &numRxMsg, 1000)) {
-			printf("failed to read messages\n");
+		if (_j2534.PassThruReadMsgs(_chanID, &_rx_payload[0], &numRx, RX_TIMEOUT)) {
+			LOGE(TAG, "[getSeed] failed to read messages");
 			reportJ2534Error(_j2534);
-			return 1;
+			goto cleanup;
 		}
-		if (numRxMsg) {
-			if (rxmsg[0].Data[3] == 0xE0)
-				continue;
-			if (rxmsg[0].Data[3] == 0xE8) {
-				if (rxmsg[0].Data[4] == 0x67) {
-					(*seed)[0] = (uint8_t)rxmsg[0].Data[6];
-					(*seed)[1] = (uint8_t)rxmsg[0].Data[7];
-					(*seed)[2] = (uint8_t)rxmsg[0].Data[8];
+
+		if (numRx) {
+			if (_rx_payload[0].RxStatus & START_OF_MESSAGE) continue;
+			if (_rx_payload[0].Data[3] == MAZDA_REQUEST_CANID_LSB) continue;
+			if ((_rx_payload[0].Data[3] == MAZDA_RESPONSE_CANID_LSB) && (_rx_payload[0].Data[4] == UDS_NEGATIVE_RESPONSE)) {
+				LOGE(TAG, "[getSeed] unknown error");
+				dump_msg(&_rx_payload[0]);
+				goto cleanup;
+			}
+
+			if (_rx_payload[0].Data[3] == MAZDA_RESPONSE_CANID_LSB) {
+				if (_rx_payload[0].Data[4] == UDS_SID_SECURITY_ACK) {
+					(*seed)[0] = (uint8_t)_rx_payload[0].Data[6];
+					(*seed)[1] = (uint8_t)_rx_payload[0].Data[7];
+					(*seed)[2] = (uint8_t)_rx_payload[0].Data[8];
 					return 0;
 				}
 			}
-			else {
-				printf("Unknown message\n");
-				dump_msg(&rxmsg[0]);
-				return 1;
-			}
+			LOGE(TAG, "[getSeed] Unknown message");
+			dump_msg(&_rx_payload[0]);
+			goto cleanup;
 		}
 	}
-
+cleanup:
+	if ((*seed) != NULL)
+		free(*seed);
+	*seed = NULL;
 	return 1;
 }
 
 size_t RX8::calculateKey(uint8_t* seedInput, uint8_t** keyOut)
 {
 	*keyOut = (uint8_t*)malloc(3);
-	if (!(*keyOut))
-		return -ENOMEM;
+	if (!(*keyOut)) return -ENOMEM;
 
-	uint8_t secret[5] = {0x4d, 0x61, 0x7a, 0x64, 0x41}; // M a z d a
+	uint8_t secret[5] = MAZDA_KEY_SECRET;
 	uint32_t seed = (seedInput[0] << 16) + (seedInput[1] << 8) + seedInput[2];
 	uint32_t or_ed_seed = ((seed & 0xFF0000) >> 16) | (seed & 0xFF00) | (secret[0] << 24) | (seed & 0xff) << 16;
 	uint32_t mucked_value = 0xc541a9;
@@ -339,77 +275,68 @@ size_t RX8::calculateKey(uint8_t* seedInput, uint8_t** keyOut)
 	return 0;
 }
 
-size_t RX8::unlock(uint8_t* key) {
-	unsigned long NumMsgs = 1;
-	PASSTHRU_MSG payload[1] = { 0 };
-	payload[0].ProtocolID = ISO15765;
-	payload[0].TxFlags = ISO15765_FRAME_PAD;
-	// request 7e0
-	payload[0].Data[0] = 0x0;
-	payload[0].Data[1] = 0x0;
-	payload[0].Data[2] = 0x07;
-	payload[0].Data[3] = 0xE0;
+size_t RX8::unlock(uint8_t* key) 
+{
+	unsigned long numTx = 1, numRx = 1;
+	prepareUDSRequest(_tx_payload, _rx_payload, numTx, numRx);
+	_tx_payload[0].Data[4] = UDS_SID_SECURITY;
+	_tx_payload[0].Data[5] = MAZDA_SBF_CHECK_KEY;
+	_tx_payload[0].Data[6] = key[0];
+	_tx_payload[0].Data[7] = key[1];
+	_tx_payload[0].Data[8] = key[2];
+	_tx_payload[0].DataSize = 9;
 
-	payload[0].Data[4] = 0x27;
-	payload[0].Data[5] = 0x02;
-	payload[0].Data[6] = key[0];
-	payload[0].Data[7] = key[1];
-	payload[0].Data[8] = key[2];
-	payload[0].DataSize = 9;
-
-	if (_j2534.PassThruWriteMsgs(_chanID, &payload[0], &NumMsgs, 100)) {
-		printf("failed to write messages\n");
+	if (_j2534.PassThruWriteMsgs(_chanID, &_tx_payload[0], &numTx, TX_TIMEOUT)) {
+		LOGE(TAG, "[unlock] failed to write messages");
 		reportJ2534Error(_j2534);
 		return 0;
 	}
 
-	unsigned long numRxMsg = 1;
-	PASSTHRU_MSG rxmsg[1] = { 0 };
-	rxmsg[0].ProtocolID = ISO15765;
-	rxmsg[0].TxFlags = ISO15765_FRAME_PAD;
-
 	for (;;) {
-		if (_j2534.PassThruReadMsgs(_chanID, &rxmsg[0], &numRxMsg, 1000)) {
-			printf("failed to read messages\n");
+		if (_j2534.PassThruReadMsgs(_chanID, &_rx_payload[0], &numRx, RX_TIMEOUT)) {
+			LOGE(TAG, "[unlock] failed to read messages");
 			reportJ2534Error(_j2534);
 			return 0;
 		}
-		if (numRxMsg) {
-			if (rxmsg[0].Data[3] == 0xE0)
-				continue;
-			if (rxmsg[0].Data[3] == 0xE8) {
-				return (rxmsg[0].Data[4] == 0x67) && (rxmsg[0].Data[5] == 0x02);
-			}
-			else {
-				printf("Unknown message\n");
-				dump_msg(&rxmsg[0]);
+
+		if (numRx) {
+			if (_rx_payload[0].RxStatus & START_OF_MESSAGE) continue;
+			if (_rx_payload[0].Data[3] == MAZDA_REQUEST_CANID_LSB) continue;
+			if ((_rx_payload[0].Data[3] == MAZDA_RESPONSE_CANID_LSB) && (_rx_payload[0].Data[4] == UDS_NEGATIVE_RESPONSE)) {
+				LOGE(TAG, "[unlock] unknown error");
+				dump_msg(&_rx_payload[0]);
 				return 0;
 			}
+
+			if (_rx_payload[0].Data[3] == MAZDA_RESPONSE_CANID_LSB) return (_rx_payload[0].Data[4] == 0x67) && (_rx_payload[0].Data[5] == 0x02);
+
+			LOGE(TAG, "[unlock] Unknown message");
+			dump_msg(&_rx_payload[0]);
+			return 0;
 		}
 	}
 
+	// unreachable
 	return 0;
 }
 
 size_t RX8::readMem(uint32_t start, uint16_t chunkSize, char** data)
 {
 	*data = (char*)malloc(chunkSize);
-	if (!(*data))
-		return -ENOMEM;
-	//msg = can.Message(arbitration_id = 0x7E0, data = [0x07, 0x23, 0x00, 0x00, 0x20, 0x00, 0x01, 0x00], is_extended_id = False)
+	if (!(*data)) return -ENOMEM;
 
 	unsigned long NumMsgs = 1;
 	PASSTHRU_MSG payload[2] = { 0 };
 	payload[0].ProtocolID = ISO15765;
 	payload[0].TxFlags = ISO15765_FRAME_PAD;
-	// request 7e0
+
 	payload[0].Data[0] = 0x0;
 	payload[0].Data[1] = 0x0;
 	payload[0].Data[2] = 0x07;
 	payload[0].Data[3] = 0xE0;
 
 	// ReadMemoryByAddress
-	payload[0].Data[4] = 0x23;
+	payload[0].Data[4] = UDS_SID_READ_MEMORY_BY_ADDRESS;
 	payload[0].Data[5] = 0x00;
 	payload[0].Data[6] = 0x00;
 	payload[0].Data[7] = 0x00;
@@ -431,9 +358,9 @@ size_t RX8::readMem(uint32_t start, uint16_t chunkSize, char** data)
 	payload[0].DataSize = 11;
 
 	if (_j2534.PassThruWriteMsgs(_chanID, &payload[0], &NumMsgs, 100)) {
-		printf("failed to write messages\n");
+		LOGE(TAG, "[readMem] failed to write messages");
 		reportJ2534Error(_j2534);
-		return 1;
+		goto cleanup;
 	}
 
 	// 0x7D000;
@@ -445,34 +372,63 @@ size_t RX8::readMem(uint32_t start, uint16_t chunkSize, char** data)
 
 	for (;;) {
 		if (_j2534.PassThruReadMsgs(_chanID, &rxmsg[0], &numRxMsg, 1000)) {
-			printf("failed to read messages\n");
+			LOGE(TAG, "[readMem] failed to read messages");
 			reportJ2534Error(_j2534);
-			return 1;
+			goto cleanup;
 		}
 		if (numRxMsg) {
-			if (rxmsg[0].Data[3] == 0xE0)
+			if (rxmsg[0].Data[3] == MAZDA_REQUEST_CANID_LSB)
 				continue;
 			
-			if (rxmsg[0].Data[3] == 0xE8) {
+			if (rxmsg[0].Data[3] == MAZDA_RESPONSE_CANID_LSB) {
 				
-				if (rxmsg[0].Data[4] == 0x7f) {
-					printf("dump failed\n");
+				if (rxmsg[0].Data[4] == UDS_NEGATIVE_RESPONSE) {
+					LOGE(TAG, "[readMem] dump failed");
 					dump_msg(&rxmsg[0]);
-					return 1;
+					goto cleanup;
 				}
 				
 				else if (rxmsg[0].Data[4] == 0x63) {
-					printf("got data\n");
-					dump_msg(&rxmsg[0]);
-					return 1;
+					LOGI(TAG, "[readMem] got data");
+					hexdump_msg(&rxmsg[0]);
+					goto cleanup;
 				}
 			}
 			else {
-				printf("Unknown message\n");
+				LOGE(TAG, "[readMem] Unknown message");
 				dump_msg(&rxmsg[0]);
-				return 1;
+				goto cleanup;
 			}
 		}
 	}
+cleanup:
+	if ((*data) != NULL)
+		free(*data);
+	*data = NULL;
 	return 1;
+}
+
+// helper function to clear the tx and rx buffers, and setup a 0x7E0 CANID ISO15765 frame
+static size_t prepareUDSRequest(PASSTHRU_MSG* tx_buffer, PASSTHRU_MSG* rx_buffer, size_t numTx, size_t numRx)
+{
+	assert(numTx <= TX_BUFFER_LEN);
+	assert(numRx <= RX_BUFFER_LEN);
+
+	// zero out both buffers to prevent accidental tx/rx of irrelevant data
+	memset(tx_buffer, 0, TX_BUFFER_LEN);
+	memset(rx_buffer, 0, RX_BUFFER_LEN);
+
+	for (size_t i = 0; i < numTx; i++) {
+		tx_buffer[i].ProtocolID = ISO15765;
+		tx_buffer[i].TxFlags = ISO15765_FRAME_PAD;
+
+		tx_buffer[i].Data[0] = 0x0;
+		tx_buffer[i].Data[1] = 0x0;
+		tx_buffer[i].Data[2] = MAZDA_REQUEST_CANID_MSB;
+		tx_buffer[i].Data[3] = MAZDA_REQUEST_CANID_LSB;
+		rx_buffer[i].ProtocolID = ISO15765;
+		rx_buffer[i].TxFlags = ISO15765_FRAME_PAD;
+	}
+
+	return 0;
 }

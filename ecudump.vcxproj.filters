@@ -22,5 +22,7 @@
   <ItemGroup>
     <ClInclude Include="librx8.h" />
     <ClInclude Include="util.h" />
+    <ClInclude Include="UDS.h" />
+    <ClInclude Include="OBD2.h" />
   </ItemGroup>
 </Project>

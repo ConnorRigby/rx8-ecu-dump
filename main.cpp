@@ -25,40 +25,52 @@ limitations under the License.
 #include "librx8.h"
 #include "util.h"
 
-J2534 j2534;
-unsigned long devID, chanID;
-unsigned int baudrate = 500000;
+static const char* TAG = "ECUDump";
+
+static const long STATUS_OK            = 0;
+static const long STATUS_FAIL_PASSTHRU = 1;
+static const long STATUS_FAIL_VINCHECK = 2;
+static const long STATUS_FAIL_CALID    = 3;
+static const long STATUS_FAIL_DIAG     = 4;
+static const long STATUS_FAIL_SEED     = 5;
+static const long STATUS_FAIL_KEY      = 6;
+static const long STATUS_FAIL_UNLOCK   = 7;
+
+static J2534 j2534;
+static RX8* ecu;
+static unsigned long devID, chanID;
+static const unsigned int CAN_BAUD = 500000;
 
 size_t j2534Initialize()
 {
 	if (!j2534.init())
 	{
-		printf("can't connect to J2534 DLL.\n");
-		return 1;
+		LOGE(TAG, "failed to connect to J2534 DLL.");
+		return STATUS_FAIL_PASSTHRU;
 	}
 
 	if (j2534.PassThruOpen(NULL, &devID))
 	{
+		LOGE(TAG, "failed to PassThruOpen()");
 		reportJ2534Error(j2534);
-		return 1;
+		return STATUS_FAIL_PASSTHRU;
 	}
 
 	// use SNIFF_MODE to listen to packets without any acknowledgement or flow control
 	// use CAN_ID_BOTH to pick up both 11 and 29 bit CAN messages
-	if (j2534.PassThruConnect(devID, ISO15765, CAN_ID_BOTH, baudrate, &chanID))
+	if (j2534.PassThruConnect(devID, ISO15765, CAN_ID_BOTH, CAN_BAUD, &chanID))
 	{
 		reportJ2534Error(j2534);
-		return 1;
+		return STATUS_FAIL_PASSTHRU;
 	}
 	j2534.PassThruIoctl(chanID, CLEAR_MSG_FILTERS, NULL, NULL);
 
 	unsigned long filterID = 0;
 
-
 	PASSTHRU_MSG maskMSG = {0};
 	PASSTHRU_MSG maskPattern = {0};
 	PASSTHRU_MSG flowControlMsg = {0};
-	for (unsigned long i = 0; i < 7; i++) {
+	for (uint8_t i = 0; i < 7; i++) {
 		maskMSG.ProtocolID = ISO15765;
 		maskMSG.TxFlags = ISO15765_FRAME_PAD;
 		maskMSG.Data[0] = 0x00;
@@ -87,7 +99,7 @@ size_t j2534Initialize()
 		if (j2534.PassThruStartMsgFilter(chanID, FLOW_CONTROL_FILTER, &maskMSG, &maskPattern, &flowControlMsg, &filterID))
 		{
 			reportJ2534Error(j2534);
-			return 1;
+			return STATUS_FAIL_PASSTHRU;
 
 		}
 	}
@@ -107,104 +119,115 @@ size_t j2534Initialize()
 	maskPattern.Data[3] = 0xE8;
 	maskPattern.DataSize = 4;
 
-	//memset(maskMSG.Data, 0, 5); // mask the first 4 byte to 0
-	//memset(maskPattern.Data, 0, 5);// match it with 0 (i.e. pass everything)
-
 	if (j2534.PassThruStartMsgFilter(chanID, PASS_FILTER, &maskMSG, &maskPattern, NULL, &filterID))
 	{
-		printf("Failed to set message filter\n");
+		LOGE(TAG, "Failed to set message filter");
 		reportJ2534Error(j2534);
-		return 1;
+		return STATUS_FAIL_PASSTHRU;
 
 	}
 
 	if (j2534.PassThruIoctl(chanID, CLEAR_TX_BUFFER, NULL, NULL))
 	{
-		printf("Failed to clear buffer\n");
+		LOGE(TAG, "Failed to clear j2534 TX buffer");
 		reportJ2534Error(j2534);
-		return 1;
+		return STATUS_FAIL_PASSTHRU;
 	}
 
 	if (j2534.PassThruIoctl(chanID, CLEAR_RX_BUFFER, NULL, NULL)) 
 	{
-		printf("Failed to clear buffer\n");
+		LOGE(TAG, "Failed to clear j2534 RX buffer");
 		reportJ2534Error(j2534);
-		return 1;
+		return STATUS_FAIL_PASSTHRU;
 	}
-	return 0;
+	return STATUS_OK;
 }
 
 int _tmain(int argc, _TCHAR* argv[])
 {
+	unsigned long status = 0;
+	char* vin, * calibrationID, * dump;
+	uint8_t* seed, * key;
+
 	if (j2534Initialize()) {
-		printf("j2534Initialize() failed\n");
-		return 1;
+		LOGE(TAG, "j2534Initialize() failed");
+		// no need to cleanup, just return here
+		return -STATUS_FAIL_PASSTHRU;
 	}
-	printf("j2534 connection initialized ok\n");
+	LOGI(TAG, "j2534 connection initialized ok");
+	ecu = new RX8(j2534, devID, chanID);
 
-	RX8 ecu(j2534, devID, chanID);
-	
-	char *vin, *calibrationID, *dump;
-	uint8_t *seed, *key;
 #if 1
+	if (ecu->getVIN(&vin)) {
+		LOGE(TAG, "failed to get VIN");
+		status = -STATUS_FAIL_VINCHECK;
+		goto cleanup;
+	}
+	LOGI(TAG, "Got VIN = %s", vin);
 
-	if (ecu.getVIN(&vin)) {
-		printf("failed to get VIN\n");
+	if (ecu->getCalibrationID(&calibrationID)) {
+		LOGE(TAG, "failed to get Calibration ID");
+		status = -STATUS_FAIL_CALID;
 		goto cleanup;
 	}
-	printf("Got VIN = %s\n", vin);
+	LOGI(TAG, "Got calibration ID = %s", calibrationID);
 
-	if (ecu.getCalibrationID(&calibrationID)) {
-		printf("failed to get Calibration ID\n");
+	if (!ecu->initDiagSession()) {
+		LOGE(TAG, "failed to init diag session");
+		status = -STATUS_FAIL_DIAG;
 		goto cleanup;
 	}
-	printf("Got calibration ID = %s\n", calibrationID);
+	LOGI(TAG, "Diag sesion initialized ok");
 
-	if (!ecu.initDiagSession()) {
-		printf("failed to init diag session\n");
+	if (ecu->getSeed(&seed)) {
+		LOGE(TAG, "failed to get seed");
+		status = -STATUS_FAIL_SEED;
 		goto cleanup;
 	}
-	printf("diag sesion initialized ok\n");
-
-	if (ecu.getSeed(&seed)) {
-		printf("failed to get seed\n");
+	LOGI(TAG, "Got seed = { %02X, %02X, %02X }", seed[0], seed[1], seed[2]);
+	if (ecu->calculateKey(seed, &key)) {
+		LOGE(TAG, "failed to calculate key");
+		status = -STATUS_FAIL_KEY;
 		goto cleanup;
 	}
-	printf("Got seed = { %02X, %02X, %02X }\n", seed[0], seed[1], seed[2]);
-	if (ecu.calculateKey(seed, &key)) {
-		printf("failed to calculate key\n");
-		goto cleanup;
-	}
-	printf("Got key = { %02X, %02X, %02X }\n", key[0], key[1], key[2]);
+	LOGI(TAG, "Got key = { %02X, %02X, %02X }", key[0], key[1], key[2]);
 	
-	if (!ecu.unlock(key)) {
-		printf("failed to unlock ECU using key\n");
+	if (!ecu->unlock(key)) {
+		LOGE(TAG, "failed to unlock ECU using key");
+		status = -STATUS_FAIL_UNLOCK;
 		goto cleanup;
 	}
-	printf("Unlocked ECU\n");
+	LOGI(TAG, "Unlocked ECU");
 #endif
-	printf("Starting Dump\n");
+	LOGI(TAG, "Starting Dump");
 	
-	if (ecu.readMem(0x0, 0x05, &dump)) {
-		printf("Failed to dump ROM\n");
+	if (ecu->readMem(0x0, 0x05, &dump)) {
+		LOGE(TAG, "Failed to dump ROM");
 		goto cleanup;
 	}
-	printf("Dump complete\n");
+	LOGI(TAG, "Dump complete");
 
+// TODO: it seems like calling PassThruDisconnect or PassThruClose causes
+//       error inside the J2534 dll. For now, skip it
 cleanup:
+	goto skip_cleanup;
+
+	LOGI(TAG, "Start cleanup");
+
 	// shut down the channel
-	if (j2534.PassThruDisconnect(chanID))
-	{
-		reportJ2534Error(j2534);
-		return 0;
+	if (j2534.PassThruDisconnect(chanID)) {
+		LOGE(TAG, "PassThruDisconnect failed");
+		return -STATUS_FAIL_PASSTHRU;
 	}
+	LOGI(TAG, "PassThruDisconnect ok");
 
 	// close the device
-
-	if (j2534.PassThruClose(devID))
-	{
-		reportJ2534Error(j2534);
-		return 0;
+	if (j2534.PassThruClose(devID)) {
+		LOGE(TAG, "PassThruClose failed");
+		return -STATUS_FAIL_PASSTHRU;
 	}
-	return 0;
+	LOGI(TAG, "PassThruClose ok");
+
+skip_cleanup:
+	return status;
 }

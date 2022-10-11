@@ -100,6 +100,8 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="librx8.h" />
+    <ClInclude Include="OBD2.h" />
+    <ClInclude Include="UDS.h" />
     <ClInclude Include="util.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
