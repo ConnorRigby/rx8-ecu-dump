@@ -39,7 +39,7 @@ J2534::J2534(void)
 #elif __APPLE__
 	strcpy(dllName,"op20pt32.dylib");
 #else
-        strcpy(dllName,"j2354.so");
+  strcpy(dllName,"j2354.so");
 #endif
 }
 
@@ -229,7 +229,7 @@ long J2534::LoadJ2534DLL(const char* szDLL)
 	strcpy(libPath,pathPtr);
 	strcat(libPath,"/Contents/Frameworks");
 	chdir(libPath); // change to this dir so J2534 .dylib can find any other needed dylibs in the same dir
-	strcat(libPath,"/"");
+	strcat(libPath,"/");
 	strcat(libPath,szDLL);
 
 	CFRelease(appUrlRef);

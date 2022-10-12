@@ -1,14 +1,28 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <ClCompile Include="..\common\J2534.cpp" />
-    <ClCompile Include="main.cpp" />
-    <ClCompile Include="librx8.cpp" />
-    <ClCompile Include="util.cpp" />
+    <ClCompile Include="src\util.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\main.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\librx8.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="J2534\J2534.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\progressbar.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Docs">
       <UniqueIdentifier>{80505dd4-3aff-4e9d-b44f-43aaac66b754}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Src">
+      <UniqueIdentifier>{2f2a7131-6bb7-4371-b42c-5ef8a6b70870}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -20,9 +34,20 @@
     </None>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="librx8.h" />
-    <ClInclude Include="util.h" />
-    <ClInclude Include="UDS.h" />
-    <ClInclude Include="OBD2.h" />
+    <ClInclude Include="src\util.h">
+      <Filter>Src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\UDS.h">
+      <Filter>Src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\progressbar.h">
+      <Filter>Src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\OBD2.h">
+      <Filter>Src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\librx8.h">
+      <Filter>Src</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

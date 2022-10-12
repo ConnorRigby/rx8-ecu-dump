@@ -20,7 +20,7 @@ limitations under the License.
 #include <errno.h>
 #include <time.h>
 
-#ifdef WIN32
+#if defined(_WIN32) || defined(WIN32) || defined (_WIN64) || defined (WIN64)
 #include <tchar.h>
 #include <windows.h>
 #include <conio.h>
@@ -211,7 +211,7 @@ int main(int argc, char** argv)
 		}
 	}
 
-	dumpFile = fopen(dumpFileName, "wba+");
+	dumpFile = fopen(dumpFileName, "ab+");
 	if(!dumpFile) {
 		LOGE(TAG, "Failed to open dump file %s", strerror(errno));
 		dumpFile = NULL;
@@ -247,8 +247,8 @@ int main(int argc, char** argv)
 	LOGI(TAG, "Unlocked ECU");
 
 	LOGI(TAG, "Starting ROM dump, this will take a moment..");
-
-  time (&dumpStart);
+	
+	time (&dumpStart);
 
 	for(address = 0; address < dumpSize; address+=chunkSize) {
 		if (ecu->readMem(address, chunkSize, &dump))
@@ -265,7 +265,7 @@ int main(int argc, char** argv)
 	fflush(dumpFile);
 	printProgress(dumpSize, dumpSize);
 
-  time(&dumpEnd);
+    time(&dumpEnd);
 	LOGI(TAG, "Successfully dumped ROM to %s Took %.0lf seconds", dumpFileName, difftime(dumpEnd,dumpStart));
 
 cleanup:

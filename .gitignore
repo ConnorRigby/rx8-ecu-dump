@@ -1,5 +1,6 @@
 # Build output
 /Debug
+/Release
 
 # visual studio (code) stuff
 .vs
@@ -15,3 +16,4 @@ ecudump
 
 # rom dump output
 *.bin
+

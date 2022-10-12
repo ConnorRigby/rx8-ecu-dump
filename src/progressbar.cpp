@@ -22,8 +22,10 @@ The Inspired by https://github.com/rpm-software-management/rpm/blob/a7c3886b356c
 #include <stdlib.h>
 #include <stdint.h>
 
-#ifdef __WIN32__
-#error FIX PROGRESS BAR
+#if defined(_WIN32) || defined(WIN32) || defined (_WIN64) || defined (WIN64)
+#include <io.h>
+#define isatty _isatty
+#define fileno _fileno
 #else
 #include <unistd.h>
 #endif
@@ -36,13 +38,13 @@ static size_t progressTotal = 0;
 void printProgress(const size_t amount, const size_t total)
 {
   size_t charsNeeded;
-  charsTotal = (isatty (STDOUT_FILENO) ? 34 : 40);
+  charsTotal = (isatty(fileno(stdout)) ? 34 : 40);
 
   if (charsCurrent != charsTotal) {
     float pct = (total ? (((float) amount) / total) : 1.0);
     charsNeeded = (charsTotal * pct) + 0.5;
     while (charsNeeded > charsCurrent) {
-      if (isatty (STDOUT_FILENO)) {
+      if (isatty (fileno(stdout))) {
         size_t i;
         for (i = 0; i < charsCurrent; i++) 
           putchar ('#');
@@ -63,7 +65,7 @@ void printProgress(const size_t amount, const size_t total)
     if (charsCurrent == charsTotal) {
       size_t i;
       progressCurrent++;
-      if (isatty(STDOUT_FILENO)) {
+      if (isatty(fileno(stdout))) {
         for (i = 1; i < charsCurrent; i++) putchar ('#');
         pct = (progressTotal ? (((float) progressCurrent) / progressTotal): 1);
         fprintf(stdout, " [%3d%%]", (int)((100 * pct) + 0.5));

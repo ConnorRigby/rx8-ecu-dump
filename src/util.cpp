@@ -32,7 +32,7 @@ void dump_msg(PASSTHRU_MSG* msg)
 	if (msg->RxStatus & START_OF_MESSAGE)
 		return;
 
-	printf("[%lu] [%0b]", msg->Timestamp, msg->RxStatus);
+	printf("[%lu]", msg->Timestamp);
 	for (unsigned int i = 0; i < msg->DataSize; i++)
 		printf("%02X ", msg->Data[i]);
 	printf("\n");
