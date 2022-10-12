@@ -1,8 +1,9 @@
 # Build output
 /Debug
 
-# visual studio stuff
+# visual studio (code) stuff
 .vs
+.vscode
 
 # build output for linux
 _build
@@ -11,3 +12,6 @@ ecudump
 
 # log files from the linux j2534 library
 *.log
+
+# rom dump output
+*.bin

@@ -14,19 +14,32 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-#include <iostream>
+#include <assert.h>
+#include <string.h>
+#include <stdio.h>
+#include <errno.h>
+#include <time.h>
 
 #ifdef WIN32
 #include <tchar.h>
 #include <windows.h>
 #include <conio.h>
+
+// access
+#include <io.h>
+#define F_OK 0
+#define access _access
+#else
+
+#include <unistd.h>
+
 #endif
 
-#include <time.h>
 #include "J2534.h"
 
 #include "librx8.h"
 #include "util.h"
+#include "progressbar.h"
 
 static const char* TAG = "ECUDump";
 
@@ -46,22 +59,17 @@ static const unsigned int CAN_BAUD = 500000;
 
 size_t j2534Initialize()
 {
-	if (!j2534.init())
-	{
+	if (!j2534.init()) {
 		LOGE(TAG, "failed to connect to J2534 DLL.");
 		return STATUS_FAIL_PASSTHRU;
 	}
 
-	if (j2534.PassThruOpen(NULL, &devID))
-	{
+	if (j2534.PassThruOpen(NULL, &devID)) {
 		LOGE(TAG, "failed to PassThruOpen()");
 		return STATUS_FAIL_PASSTHRU;
 	}
 
-	// use SNIFF_MODE to listen to packets without any acknowledgement or flow control
-	// use CAN_ID_BOTH to pick up both 11 and 29 bit CAN messages
-	if (j2534.PassThruConnect(devID, ISO15765, CAN_ID_BOTH, CAN_BAUD, &chanID))
-	{
+	if (j2534.PassThruConnect(devID, ISO15765, CAN_ID_BOTH, CAN_BAUD, &chanID)) {
 		reportJ2534Error(j2534);
 		return STATUS_FAIL_PASSTHRU;
 	}
@@ -97,7 +105,6 @@ size_t j2534Initialize()
 		flowControlMsg.Data[3] = (0xE0 + i);
 		flowControlMsg.DataSize = 4;
 
-
 		if (j2534.PassThruStartMsgFilter(chanID, FLOW_CONTROL_FILTER, &maskMSG, &maskPattern, &flowControlMsg, &filterID))
 		{
 			reportJ2534Error(j2534);
@@ -121,23 +128,20 @@ size_t j2534Initialize()
 	maskPattern.Data[3] = 0xE8;
 	maskPattern.DataSize = 4;
 
-	if (j2534.PassThruStartMsgFilter(chanID, PASS_FILTER, &maskMSG, &maskPattern, NULL, &filterID))
-	{
+	if (j2534.PassThruStartMsgFilter(chanID, PASS_FILTER, &maskMSG, &maskPattern, NULL, &filterID)) {
 		LOGE(TAG, "Failed to set message filter");
 		reportJ2534Error(j2534);
 		return STATUS_FAIL_PASSTHRU;
 
 	}
 
-	if (j2534.PassThruIoctl(chanID, CLEAR_TX_BUFFER, NULL, NULL))
-	{
+	if (j2534.PassThruIoctl(chanID, CLEAR_TX_BUFFER, NULL, NULL)) {
 		LOGE(TAG, "Failed to clear j2534 TX buffer");
 		reportJ2534Error(j2534);
 		return STATUS_FAIL_PASSTHRU;
 	}
 
-	if (j2534.PassThruIoctl(chanID, CLEAR_RX_BUFFER, NULL, NULL)) 
-	{
+	if (j2534.PassThruIoctl(chanID, CLEAR_RX_BUFFER, NULL, NULL)) {
 		LOGE(TAG, "Failed to clear j2534 RX buffer");
 		reportJ2534Error(j2534);
 		return STATUS_FAIL_PASSTHRU;
@@ -152,8 +156,18 @@ int main(int argc, char** argv)
 #endif
 {
 	unsigned long status = 0;
-	char* vin, * calibrationID, * dump;
-	uint8_t* seed, * key;
+	char *vin, *calibrationID, *dump;
+	uint8_t *seed, *key;
+
+	// state for dump progress
+	time_t dumpStart, dumpEnd;
+	uint32_t address = 0;
+	uint16_t chunkSize = 0x0280;
+	uint32_t dumpSize = 0x80000;
+	uint16_t remainder = 128;
+
+	FILE* dumpFile = NULL;
+	char dumpFileName[255] = {0};
 
 	if (j2534Initialize()) {
 		LOGE(TAG, "j2534Initialize() failed");
@@ -163,7 +177,6 @@ int main(int argc, char** argv)
 	LOGI(TAG, "j2534 connection initialized ok");
 	ecu = new RX8(j2534, devID, chanID);
 
-#if 1
 	if (ecu->getVIN(&vin)) {
 		LOGE(TAG, "failed to get VIN");
 		status = -STATUS_FAIL_VINCHECK;
@@ -177,6 +190,34 @@ int main(int argc, char** argv)
 		goto cleanup;
 	}
 	LOGI(TAG, "Got calibration ID = %s", calibrationID);
+
+	// sanity check assertions just in case of CAN errors
+	assert(strlen(vin) > 0);
+	assert(strlen(calibrationID) > 0);
+	assert(strlen(vin) + 1 + strlen(calibrationID) + 3 < 255);
+
+	// example: JM1FE173370212600-N3M5EF00013H6020.bin
+	strcpy(dumpFileName, vin);
+	strcpy(dumpFileName + strlen(vin), "-");
+	strcpy(dumpFileName + strlen(vin) + 1, calibrationID);
+	strcpy(dumpFileName + strlen(vin) + 1 + strlen(calibrationID), ".bin");
+
+	if (access(dumpFileName, F_OK) == 0) {
+		LOGE(TAG, "Removing old ROM %s", dumpFileName);
+		if(remove(dumpFileName) != 0) {
+			LOGE(TAG, "Could not delete old file %s", strerror(errno));
+			status = -errno;
+			goto cleanup;
+		}
+	}
+
+	dumpFile = fopen(dumpFileName, "wba+");
+	if(!dumpFile) {
+		LOGE(TAG, "Failed to open dump file %s", strerror(errno));
+		dumpFile = NULL;
+		status = -errno;
+		goto cleanup;
+	}
 
 	if (!ecu->initDiagSession()) {
 		LOGE(TAG, "failed to init diag session");
@@ -196,7 +237,7 @@ int main(int argc, char** argv)
 		status = -STATUS_FAIL_KEY;
 		goto cleanup;
 	}
-	LOGI(TAG, "Got key = { %02X, %02X, %02X }", key[0], key[1], key[2]);
+	LOGI(TAG, "Got key  = { %02X, %02X, %02X }", key[0], key[1], key[2]);
 	
 	if (!ecu->unlock(key)) {
 		LOGE(TAG, "failed to unlock ECU using key");
@@ -204,18 +245,37 @@ int main(int argc, char** argv)
 		goto cleanup;
 	}
 	LOGI(TAG, "Unlocked ECU");
-#endif
-	LOGI(TAG, "Starting Dump");
-	
-	if (ecu->readMem(0x0, 0x05, &dump)) {
-		LOGE(TAG, "Failed to dump ROM");
+
+	LOGI(TAG, "Starting ROM dump, this will take a moment..");
+
+  time (&dumpStart);
+
+	for(address = 0; address < dumpSize; address+=chunkSize) {
+		if (ecu->readMem(address, chunkSize, &dump))
+			break;
+		fwrite(dump, chunkSize, 1, dumpFile);
+		printProgress(address, dumpSize);
+	}
+
+	if (ecu->readMem(address, remainder, &dump)) {
+		LOGE(TAG, "Failed to dump remainder of ROM %2X", address);
 		goto cleanup;
 	}
-	LOGI(TAG, "Dump complete");
+	fwrite(dump, remainder, 1, dumpFile);
+	fflush(dumpFile);
+	printProgress(dumpSize, dumpSize);
 
+  time(&dumpEnd);
+	LOGI(TAG, "Successfully dumped ROM to %s Took %.0lf seconds", dumpFileName, difftime(dumpEnd,dumpStart));
+
+cleanup:
+	if(dumpFile) {
+		fflush(dumpFile);
+		fclose(dumpFile);
+		dumpFile = NULL;
+	}
 // TODO: it seems like calling PassThruDisconnect or PassThruClose causes
 //       error inside the J2534 dll. For now, skip it
-cleanup:
 	goto skip_cleanup;
 
 	LOGI(TAG, "Start cleanup");

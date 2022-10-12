@@ -38,20 +38,24 @@ void dump_msg(PASSTHRU_MSG* msg)
 	printf("\n");
 }
 
-// credit: https://stackoverflow.com/questions/29242/off-the-shelf-c-hex-dump-code
 void hexdump_msg(PASSTHRU_MSG* msg) {
-    unsigned char* buf = (unsigned char*)msg->Data;
+    hexdump(msg->Data, msg->DataSize);
+}
+
+// credit: https://stackoverflow.com/questions/29242/off-the-shelf-c-hex-dump-code
+void hexdump(void *ptr, size_t buflen) {
+    unsigned char* buf = (unsigned char*)ptr;
     size_t i, j;
-    for (i = 0; i < msg->DataSize; i += 16) {
+    for (i = 0; i < buflen; i += 16) {
         printf("%06lx: ", i);
         for (j = 0; j < 16; j++)
-            if (i + j < msg->DataSize)
+            if (i + j < buflen)
                 printf("%02x ", buf[i + j]);
             else
                 printf("   ");
         printf(" ");
         for (j = 0; j < 16; j++)
-            if (i + j < msg->DataSize)
+            if (i + j < buflen)
                 printf("%c", isprint(buf[i + j]) ? buf[i + j] : '.');
         printf("\n");
     }
