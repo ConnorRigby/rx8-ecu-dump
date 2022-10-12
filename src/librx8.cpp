@@ -77,8 +77,15 @@ size_t RX8::getVIN(char** vin)
 
 			if (_rx_payload[0].Data[3] == MAZDA_RESPONSE_CANID_LSB) {
 				if (_rx_payload[0].Data[4] == OBD2_SID_REQUEST_VEHICLE_INFORMATION_ACK) {
+					// replace the ' ' characters with null terminators. 
+					if (_rx_payload[0].Data[17] == 0x20) {
+						for (uint8_t i = 0, j = 17; i < VIN_LENGTH; i++, j++)
+							_rx_payload[0].Data[j] = 0x0;
+					}
+
 					for (uint8_t i = 0, j = 7; j < _rx_payload[0].DataSize; i++, j++)
 						(*vin)[i] = _rx_payload[0].Data[j];
+
 					return 0;
 				}
 				LOGE(TAG, "Invalid response from ECU");
