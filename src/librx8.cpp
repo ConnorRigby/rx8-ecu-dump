@@ -17,8 +17,10 @@ limitations under the License.
 #include <string.h>
 #include <stdio.h>
 #include <assert.h>
+#include <cstdlib>
+#include <errno.h>
 
-#include "..\common\J2534.h"
+#include "J2534.h"
 
 #include "librx8.h"
 #include "UDS.h"
@@ -79,10 +81,14 @@ size_t RX8::getVIN(char** vin)
 						(*vin)[i] = _rx_payload[0].Data[j];
 					return 0;
 				}
+				LOGE(TAG, "Invalid response from ECU");
+				dump_msg(&_rx_payload[0]);
+				goto cleanup;
 			}
 
 			LOGE(TAG, "[getVIN] Unknown message");
 			dump_msg(&_rx_payload[0]);
+			continue;
 			goto cleanup;
 		}
 	}
@@ -357,6 +363,12 @@ size_t RX8::readMem(uint32_t start, uint16_t chunkSize, char** data)
 #endif
 	payload[0].DataSize = 11;
 
+        unsigned long numRxMsg = 1;
+        PASSTHRU_MSG rxmsg[1] = { 0 };
+        rxmsg[0].ProtocolID = ISO15765;
+        rxmsg[0].TxFlags = ISO15765_FRAME_PAD;
+
+
 	if (_j2534.PassThruWriteMsgs(_chanID, &payload[0], &NumMsgs, 100)) {
 		LOGE(TAG, "[readMem] failed to write messages");
 		reportJ2534Error(_j2534);
@@ -365,10 +377,6 @@ size_t RX8::readMem(uint32_t start, uint16_t chunkSize, char** data)
 
 	// 0x7D000;
 
-	unsigned long numRxMsg = 1;
-	PASSTHRU_MSG rxmsg[1] = { 0 };
-	rxmsg[0].ProtocolID = ISO15765;
-	rxmsg[0].TxFlags = ISO15765_FRAME_PAD;
 
 	for (;;) {
 		if (_j2534.PassThruReadMsgs(_chanID, &rxmsg[0], &numRxMsg, 1000)) {
@@ -409,7 +417,7 @@ cleanup:
 }
 
 // helper function to clear the tx and rx buffers, and setup a 0x7E0 CANID ISO15765 frame
-static size_t prepareUDSRequest(PASSTHRU_MSG* tx_buffer, PASSTHRU_MSG* rx_buffer, size_t numTx, size_t numRx)
+size_t prepareUDSRequest(PASSTHRU_MSG* tx_buffer, PASSTHRU_MSG* rx_buffer, size_t numTx, size_t numRx)
 {
 	assert(numTx <= TX_BUFFER_LEN);
 	assert(numRx <= RX_BUFFER_LEN);

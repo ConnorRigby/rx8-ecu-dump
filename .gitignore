@@ -3,3 +3,11 @@
 
 # visual studio stuff
 .vs
+
+# build output for linux
+_build
+out
+ecudump
+
+# log files from the linux j2534 library
+*.log

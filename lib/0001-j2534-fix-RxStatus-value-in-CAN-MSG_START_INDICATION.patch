@@ -1,0 +1,26 @@
+From 678252bbd0492f48df5e2d94e89cb5485b76d02f Mon Sep 17 00:00:00 2001
+From: Connor Rigby <connorr@hey.com>
+Date: Tue, 11 Oct 2022 21:23:51 -0700
+Subject: [PATCH] j2534: fix RxStatus value in CAN MSG_START_INDICATION
+
+Signed-off-by: Connor Rigby <connorr@hey.com>
+---
+ j2534/j2534.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/j2534/j2534.c b/j2534/j2534.c
+index ab6bca2..361e5d1 100644
+--- a/j2534/j2534.c
++++ b/j2534/j2534.c
+@@ -995,7 +995,7 @@ int32_t PassThruReadMsgs(const unsigned long ChannelID, PASSTHRU_MSG *pMsg,
+ 								dataSize = msgBuf->DataSize + (data[len] - 5);
+ 								msgBuf->DataSize = dataSize;
+ 								msgBuf->ExtraDataIndex = 0;
+-								msgBuf->RxStatus = 9;	// TX Done Loopback
++								msgBuf->RxStatus = 2;	// Msg start indication
+ 							}
+ 							if (channel_id == ISO9141 || channel_id == ISO14230)	// K-line message
+ 							{
+-- 
+2.38.0
+

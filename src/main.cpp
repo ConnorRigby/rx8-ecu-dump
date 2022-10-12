@@ -15,12 +15,15 @@ limitations under the License.
 */
 
 #include <iostream>
+
+#ifdef WIN32
 #include <tchar.h>
 #include <windows.h>
 #include <conio.h>
-#include <time.h>
+#endif
 
-#include "..\common\J2534.h"
+#include <time.h>
+#include "J2534.h"
 
 #include "librx8.h"
 #include "util.h"
@@ -52,7 +55,6 @@ size_t j2534Initialize()
 	if (j2534.PassThruOpen(NULL, &devID))
 	{
 		LOGE(TAG, "failed to PassThruOpen()");
-		reportJ2534Error(j2534);
 		return STATUS_FAIL_PASSTHRU;
 	}
 
@@ -143,7 +145,11 @@ size_t j2534Initialize()
 	return STATUS_OK;
 }
 
+#ifdef WIN32
 int _tmain(int argc, _TCHAR* argv[])
+#else
+int main(int argc, char** argv)
+#endif
 {
 	unsigned long status = 0;
 	char* vin, * calibrationID, * dump;

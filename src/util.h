@@ -17,7 +17,7 @@ limitations under the License.
 #pragma once
 
 #include <stdio.h>
-#include "..\common\J2534.h"
+#include "J2534.h"
 
 void reportJ2534Error(J2534 j2534);
 void dump_msg(PASSTHRU_MSG* msg);
@@ -43,8 +43,8 @@ void hexdump_msg(PASSTHRU_MSG* msg);
 #endif
 
 #define log_location stderr
-#define LOGE(TAG, ...) do { fprintf(log_location, "[" ANSI_COLOR_RED); fprintf(log_location, TAG); fprintf(log_location, "] " ANSI_COLOR_RESET); fprintf(log_location, __VA_ARGS__); fprintf(log_location, "\r\n"); fflush(log_location); } while(0)
-#define LOGI(TAG, ...) do { fprintf(log_location, "["); fprintf(log_location, TAG); fprintf(log_location, "] "); fprintf(log_location, __VA_ARGS__); fprintf(log_location, "\r\n"); fflush(log_location); } while(0)
+#define LOGE(TAG, ...) do { fprintf(log_location, "[" ANSI_COLOR_RED); fprintf(log_location, TAG); fprintf(log_location, ANSI_COLOR_RESET "] "); fprintf(log_location, __VA_ARGS__); fprintf(log_location, "\r\n"); fflush(log_location); } while(0)
+#define LOGI(TAG, ...) do { fprintf(log_location, "[" ANSI_COLOR_CYAN); fprintf(log_location, TAG); fprintf(log_location, ANSI_COLOR_RESET"] "); fprintf(log_location, __VA_ARGS__); fprintf(log_location, "\r\n"); fflush(log_location); } while(0)
 
 #define DEBUG
 #ifdef DEBUG

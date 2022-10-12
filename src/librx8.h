@@ -16,7 +16,7 @@ limitations under the License.
 #pragma once
 
 #include <stdint.h>
-#include "..\common\J2534.h"
+#include "J2534.h"
 
 // 17 characters + a null terminator
 static const uint8_t VIN_LENGTH = 18;

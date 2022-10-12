@@ -17,7 +17,7 @@ limitations under the License.
 #include <stdio.h>
 #include <ctype.h>
 
-#include "..\common\J2534.h"
+#include "J2534.h"
 #include "util.h"
 
 void reportJ2534Error(J2534 j2534)
@@ -31,7 +31,8 @@ void dump_msg(PASSTHRU_MSG* msg)
 {
 	if (msg->RxStatus & START_OF_MESSAGE)
 		return;
-	printf("[%u] ", msg->Timestamp);
+
+	printf("[%lu] [%0b]", msg->Timestamp, msg->RxStatus);
 	for (unsigned int i = 0; i < msg->DataSize; i++)
 		printf("%02X ", msg->Data[i]);
 	printf("\n");
@@ -40,9 +41,9 @@ void dump_msg(PASSTHRU_MSG* msg)
 // credit: https://stackoverflow.com/questions/29242/off-the-shelf-c-hex-dump-code
 void hexdump_msg(PASSTHRU_MSG* msg) {
     unsigned char* buf = (unsigned char*)msg->Data;
-    int i, j;
+    size_t i, j;
     for (i = 0; i < msg->DataSize; i += 16) {
-        printf("%06x: ", i);
+        printf("%06lx: ", i);
         for (j = 0; j < 16; j++)
             if (i + j < msg->DataSize)
                 printf("%02x ", buf[i + j]);

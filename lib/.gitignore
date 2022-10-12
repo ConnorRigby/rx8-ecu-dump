@@ -1,0 +1,6 @@
+!j2534
+!.gitignore
+!*.patch
+
+# ignore all files by default
+*

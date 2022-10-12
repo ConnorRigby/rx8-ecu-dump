@@ -5,17 +5,27 @@
 // You are free to use this file for any purpose, but please keep
 // notice of where it came from!
 //
+// 10-11-2022: Connor Rigby: Add Linux Support
+//
 //////////////////////////////////////////////////////////////////////////////
-
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
-#include "j2534.h"
+#include "J2534.h"
 #if defined(_WIN32) || defined(WIN32) || defined (_WIN64) || defined (WIN64)
-#else
+
+#elif __APPLE__
+
 #include <dlfcn.h>
 #include <CoreFoundation/CFBundle.h>
 #include <unistd.h>
+
+#else
+
+#include <assert.h>
+#include <unistd.h>
+#include <dlfcn.h>
+
 #endif
 
 J2534::J2534(void)
@@ -26,8 +36,10 @@ J2534::J2534(void)
 	// default to the Openport 2.0 J2534 DLL
 #if defined(_WIN32) || defined(WIN32) || defined (_WIN64) || defined (WIN64)
 	strcpy(dllName,"op20pt32.dll");
-#else
+#elif __APPLE__
 	strcpy(dllName,"op20pt32.dylib");
+#else
+        strcpy(dllName,"j2354.so");
 #endif
 }
 
@@ -56,7 +68,7 @@ J2534::~J2534(void)
 #if defined(_WIN32) || defined(WIN32) || defined (_WIN64) || defined (WIN64)
 	if (hDLL)
 		FreeLibrary(hDLL);
-#else
+#else 
 	if (hDLL)
 		dlclose(hDLL);
 #endif
@@ -203,7 +215,7 @@ long J2534::LoadJ2534DLL(const char* szDLL)
 		strcpy(lastError,"error loading J2534 DLL function pointers");
 		return false;
 	}
-#else
+#elif __APPLE__ 
 	CFURLRef appUrlRef = CFBundleCopyBundleURL(CFBundleGetMainBundle());
 	CFStringRef macPath = CFURLCopyFileSystemPath(appUrlRef,
 										kCFURLPOSIXPathStyle);
@@ -240,6 +252,20 @@ long J2534::LoadJ2534DLL(const char* szDLL)
 		return false;
 	}
 	chdir(oldPath);
+#else
+	if(!(hDLL = dlopen("lib/j2534/j2534/j2534.so", RTLD_LOCAL|RTLD_LAZY)))
+	{
+		strcpy(lastError,"error loading dll");
+		return false;
+	}	
+	else if(!getPTfns())
+	{
+		dlclose(hDLL);
+		hDLL = NULL;
+		strcpy(lastError,"error loading J2534 lib function pointers");
+		return false;
+	}
+	
 #endif
 
 	DBGPRINT(("DLL loaded successfully\n"));
