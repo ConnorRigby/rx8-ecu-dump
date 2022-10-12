@@ -368,6 +368,7 @@ size_t RX8::readMem(uint32_t address, uint16_t chunkSize, char** data)
 						LOGE(TAG, "[readMem] request out of range");
 						goto cleanup;
 					}
+				        case 0x78: continue;
 					default: {
 						LOGE(TAG, "[readMem] unknown error");
 						dump_msg(&_rx_payload[0]);
