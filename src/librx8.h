@@ -84,6 +84,9 @@ public:
 	/** Read memory starting at `start` and of size `chunkSize` into `data`. ECU must be `unlock()`ed for this to work. */
 	size_t readMem(uint32_t start, uint16_t chunkSize, char** data);
 
+	/** I have no idea what this is, but it's important. Some sort of bootloader mode or something. */
+	size_t sendThatWeirdPayload();
+
 };
 
 // clears the tx and rx buffers for use in a single request/response cycle

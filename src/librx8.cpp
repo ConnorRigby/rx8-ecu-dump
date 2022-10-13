@@ -401,6 +401,48 @@ cleanup:
 	return 1;
 }
 
+/**
+ * 7E0#04 B1 00 B2 00 00 00 00 ????
+ * 7E8#03 F1 00 B2 00 00 00 00 ????
+ */
+size_t RX8::sendThatWeirdPayload()
+{
+	unsigned long numTx = 1, numRx = 1;
+	prepareUDSRequest(_tx_payload, _rx_payload, numTx, numRx);
+	_tx_payload[0].Data[4] = 0xB1;
+	_tx_payload[0].Data[5] = 0x0;
+	_tx_payload[0].Data[6] = 0xB2;
+	_tx_payload[0].Data[7] = 0x0;
+	_tx_payload[0].DataSize = 8;
+
+	if (_j2534.PassThruWriteMsgs(_chanID, &_tx_payload[0], &numTx, TX_TIMEOUT)) {
+		LOGE(TAG, "[sendThatWeirdPayload] failed to write messages");
+		reportJ2534Error(_j2534);
+		return 1;
+	}
+
+	for (;;) {
+		if (_j2534.PassThruReadMsgs(_chanID, &_rx_payload[0], &numRx, RX_TIMEOUT)) {
+			LOGE(TAG, "[sendThatWeirdPayload] failed to read messages");
+			reportJ2534Error(_j2534);
+			return 1;
+		}
+		if (numRx) {
+			if (_rx_payload[0].RxStatus & START_OF_MESSAGE) continue;
+			if (_rx_payload[0].Data[3] == MAZDA_REQUEST_CANID_LSB) continue;
+			if ((_rx_payload[0].Data[3] == MAZDA_RESPONSE_CANID_LSB) && (_rx_payload[0].Data[4] == UDS_NEGATIVE_RESPONSE)) {
+				LOGE(TAG, "[sendThatWeirdPayload] unknown error");
+				dump_msg(&_rx_payload[0]);
+				return 1;
+			}
+			return _rx_payload[0].Data[4] == 0xF1;
+		}
+	}
+
+	// unreachable
+	return 1;
+}
+
 // helper function to clear the tx and rx buffers, and setup a 0x7E0 CANID ISO15765 frame
 size_t prepareUDSRequest(PASSTHRU_MSG* tx_buffer, PASSTHRU_MSG* rx_buffer, size_t numTx, size_t numRx)
 {
