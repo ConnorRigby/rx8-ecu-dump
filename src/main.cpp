@@ -42,6 +42,8 @@ limitations under the License.
 #include "progressbar.h"
 #include "args.h"
 
+#include "payload.h"
+
 static const char* TAG = "ECUDump";
 
 static const long STATUS_OK            = 0;
@@ -175,15 +177,23 @@ int main(int argc, char** argv)
 	// state for command progress
 	time_t commandStart, commandEnd;
 	uint32_t address = 0;
-	uint16_t chunkSize = 0x0280;
-	uint32_t dumpSize = 0x80000;
+	//uint16_t chunkSize = 0x0280;
+	//uint32_t dumpSize = 0x80000;
+	uint16_t chunkSize = 0x00ff;
+	uint32_t dumpSize = 0xfffe;
 	uint16_t remainder = 128;
 
 	FILE* romFile = NULL;
 	char fileName[255] = {0};
+	char* buffer = NULL;
+	size_t shouldReset = false;
 
-	while ((opt = getopt(argc, argv, "c:a:s:v:i:o::")) != -1) {
+	while ((opt = getopt(argc, argv, "rc:a:s:v:i:o::")) != -1) {
 		switch (opt) {
+			case 'r': {
+				shouldReset = true;
+				break;
+			}
 			case 'c': {
 				assert(optarg != NULL);
 				if(strcmp(optarg, "vin") == 0) {
@@ -300,6 +310,32 @@ int main(int argc, char** argv)
 	}
 	LOGI(TAG, "j2534 connection initialized ok");
 	ecu = new RX8(j2534, devID, chanID);
+	if(shouldReset) {
+		LOGI(TAG, "resetting ECU");
+		if(!ecu->reset()) {
+		   LOGI(TAG, "ECU reset failed");
+		}
+	}
+	// if(ecu->sendPayload(out_bin, out_bin_len)) {
+	// 	LOGE(TAG, "payload failed to send");
+	// 	goto cleanup;
+	// }
+
+// if(ecu->sendThatWeirdPayload()) {
+// 			LOGE(TAG, "Could not enter bootloader mode");
+
+// 			goto cleanup;
+
+// }
+// 		if(ecu->requestDownload(out_bin_len)) {
+// 			LOGE(TAG, "Could not enter request download mode");
+// 			goto cleanup;
+// 		}
+
+		// if(ecu->requestDownload(out_bin_len)) {
+		// 	LOGE(TAG, "Could not enter request download mode");
+		// 	goto cleanup;
+		// }
 
 	if(_GET_VIN(command)) {
 		if (ecu->getVIN(&vin)) {
@@ -319,13 +355,21 @@ int main(int argc, char** argv)
 		LOGI(TAG, "Got calibration ID = %s", calibrationID);
 	}
 
-	if (!ecu->initDiagSession()) {
-		LOGE(TAG, "failed to init diag session");
+
+	if (!ecu->initDiagSession(MAZDA_SBF_SESSION_81)) {
+		LOGE(TAG, "failed to init diag session 81");
+		status = -STATUS_FAIL_DIAG;
+		goto cleanup;
+	}
+
+	
+	if (!ecu->initDiagSession(MAZDA_SBF_SESSION_85)) {
+		LOGE(TAG, "failed to init diag session 85");
 		status = -STATUS_FAIL_DIAG;
 		goto cleanup;
 	}
 	LOGI(TAG, "Diag sesion initialized ok");
-
+	
 	if(_GET_SEED(command)) {
 		if (ecu->getSeed(&seed)) {
 			LOGE(TAG, "failed to get seed");
@@ -353,6 +397,34 @@ int main(int argc, char** argv)
 		LOGI(TAG, "Unlocked ECU");
 	}
 
+	// if(ecu->sendThatWeirdPayload()) {
+	// 	LOGE(TAG, "Could not enter bootloader(?) mode");
+	// 	status = -69;
+	// 	goto cleanup;
+	// }
+
+	// if(!ecu->requestDownload(out_bin_len)) {
+	// 	LOGE(TAG, "Could not enter request download mode");
+	// 	status = -69;
+	// 	goto cleanup;
+	// }
+		// if(!ecu->requestUpload(out_bin_len)) {
+		// 	LOGE(TAG, "Could not enter request download mode");
+		// 	status = -69;
+		// 	goto cleanup;
+		// }
+/*
+	address = 0x6000;
+	LOGE(TAG, "ugh %032X", address);
+	for(address = 0x6000; address < 0xffff; address += 0xff) {
+
+		if (ecu->readMem(address,0xff, &buffer)) {
+		LOGE(TAG, "Failed to read memory 0x%016X", address);
+		// goto cleanup;
+		}
+	}
+	return 1;
+*/
 	time(&commandStart);
 	if(_DOWNLOAD_ROM(command)) {
 		LOGI(TAG, "Starting ROM dump, this will take a moment..");
@@ -389,7 +461,7 @@ int main(int argc, char** argv)
 			goto cleanup;
 		}
 
-		for(address = 0; address < dumpSize; address+=chunkSize) {
+		for(address = 0x6000; address < dumpSize; address+=chunkSize) {
 			if (ecu->readMem(address, chunkSize, &dump))
 				break;
 			fwrite(dump, chunkSize, 1, romFile);
@@ -410,8 +482,41 @@ int main(int argc, char** argv)
 
 	if(_UPLOAD_ROM(command)) {
 		LOGE(TAG, "ROM Upload not implemented yet");
-		status = 1;
-		goto cleanup;
+
+		if(ecu->sendThatWeirdPayload()) {
+			LOGE(TAG, "Could not enter bootloader(?) mode");
+			status = -69;
+			goto cleanup;
+		}
+
+		if(!ecu->requestDownload(out_bin_len)) {
+		 	LOGE(TAG, "Could not enter request download mode");
+		 	status = -69;
+		 	goto cleanup;
+		 }
+
+		if(ecu->sendPayload(out_bin, out_bin_len)) {
+			LOGE(TAG, "payload failed to send");
+			status = -69;
+//			goto cleanup;
+		}
+
+		time(&commandEnd);
+		LOGI(TAG, "Successfully uploaded payload. Took %.0lf seconds", difftime(commandEnd,commandStart));
+
+		if(!ecu->requestTransferExit()) {
+			LOGE(TAG, "Could not complete upload");
+			status = -69;
+//			goto cleanup;
+		}
+
+		if(!ecu->reset()) {
+			LOGE(TAG, "Could not reset ECU");
+			status = -69;
+			goto cleanup;
+		}
+
+		status = 0;
 	}
 cleanup:
 	if(romFile) {

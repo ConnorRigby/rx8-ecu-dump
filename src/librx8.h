@@ -18,6 +18,8 @@ limitations under the License.
 #include <stdint.h>
 #include "J2534.h"
 
+#define PM_DATA_LEN	4128 
+
 // 17 characters + a null terminator
 static const uint8_t VIN_LENGTH = 18;
 
@@ -70,7 +72,7 @@ public:
 	size_t getCalibrationID(char** calibrationID);
 	
 	/** Initialize a diag session with the ECU */
-	size_t initDiagSession();
+	size_t initDiagSession(uint8_t session);
 
 	/** Request a seed to be used in the key handshake */
 	size_t getSeed(uint8_t** seed);
@@ -87,6 +89,14 @@ public:
 	/** I have no idea what this is, but it's important. Some sort of bootloader mode or something. */
 	size_t sendThatWeirdPayload();
 
+	size_t requestDownload(uint32_t size);
+	size_t requestUpload(uint32_t size);
+
+	size_t sendPayload(unsigned char* payload, uint32_t size);
+
+	size_t requestTransferExit();
+
+	size_t reset();
 };
 
 // clears the tx and rx buffers for use in a single request/response cycle
