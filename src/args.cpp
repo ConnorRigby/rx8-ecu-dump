@@ -1,9 +1,13 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#if defined(_WIN32) || defined(WIN32) || defined (_WIN64) || defined (WIN64)
+#include "../lib/getopt/getopt.h"
+#else
 #include <unistd.h>
 #include <getopt.h>
-#include <string.h>
+#endif
 
 #include "args.h"
 
@@ -12,7 +16,11 @@ void decomposeArgs(ecudump_args_t* args)
   assert(args != NULL);
   fprintf(stderr,
     "ARGS="
+#if defined(_WIN32) || defined(WIN32) || defined (_WIN64) || defined (WIN64)
+    "\tcommand=%08x\n"
+#else
     "\tcommand=%016b\n"
+#endif
     "\tfileName=%s\n"
     "\tVIN  =%d\n"
     "\tCALID=%d\n"
@@ -41,18 +49,18 @@ void decomposeArgs(ecudump_args_t* args)
   );
 }
 
-signed long decodeHex(const char* param, size_t max)
+signed long long decodeHex(const char* param, size_t max)
 {
   uint8_t base = 10;
   char* extra = NULL;
-  long out = 0;
+  long long out = 0;
   const char* substr = strstr(param, "0x");
   if(substr) {
     param = substr;
     base=16;
   }
 
-  out = strtol(param, &extra, base);
+  out = strtoll(param, &extra, base);
 
   if(strlen(extra) > 0) 
     return -(strlen(extra));
@@ -61,6 +69,13 @@ signed long decodeHex(const char* param, size_t max)
     return (out < 0) ? out : -out;
 
   return out;
+}
+
+void printUsage(int argc, char** argv, ecudump_args_t* args)
+{
+    assert(argv[0]);
+    fprintf(stderr, "Usage: %s [-vcskhf] [-d [filename] | -u [filename]]\n", argv[0]);
+
 }
 
 size_t getCommandArgs(int argc, char** argv, ecudump_args_t* args)
@@ -91,6 +106,7 @@ size_t getCommandArgs(int argc, char** argv, ecudump_args_t* args)
       {"start-address", required_argument, NULL, 0},
       {"transfer-size", required_argument, NULL, 0},
       {"chunk-size",    required_argument, NULL, 0},
+      {"overwrite",     no_argument,       NULL, 'f'},
 
       // meta
       {"help",     no_argument,       NULL,  'h'},
@@ -99,14 +115,14 @@ size_t getCommandArgs(int argc, char** argv, ecudump_args_t* args)
       {NULL,       0,                 NULL,   0 }
     };
 
-    c = getopt_long(argc, argv, "-:d::u::vcskh", long_options, &option_index);
+    c = getopt_long(argc, argv, "-:d::u::vcskhf", long_options, &option_index);
     if (c == -1) break;
     switch(c) {
       case 0: {
         if(strcmp(long_options[option_index].name, "start-address") == 0) {
-          signed long ret = decodeHex(optarg, 0xffffffff);
+          signed long long ret = decodeHex(optarg, 0xffffffff);
           if(ret < 0) {
-            fprintf(stderr, "could not decode %s=%s\n", long_options[option_index].name, optarg);
+            fprintf(stderr, "could not decode %s=%s (%lld)\n", long_options[option_index].name, optarg, ret);
             return ret;
           }
           args->params.transfer.startAddress = ret;
@@ -114,9 +130,9 @@ size_t getCommandArgs(int argc, char** argv, ecudump_args_t* args)
         }
 
         if(strcmp(long_options[option_index].name, "chunk-size") == 0) {
-          signed long ret = decodeHex(optarg, 0xffff);
+            signed long long ret = decodeHex(optarg, 0xffff);
           if(ret < 0) {
-            fprintf(stderr, "could not decode %s=%s\n", long_options[option_index].name, optarg);
+            fprintf(stderr, "could not decode %s=%s (%lld)\n", long_options[option_index].name, optarg, ret);
             return ret;
           }
           args->params.transfer.chunkSize = ret;
@@ -124,12 +140,17 @@ size_t getCommandArgs(int argc, char** argv, ecudump_args_t* args)
         }
 
         if(strcmp(long_options[option_index].name, "transfer-size") == 0) {
-          signed long ret = decodeHex(optarg, 0xffffffff);
+          signed long long ret = decodeHex(optarg, 0xffffffff);
           if(ret < 0) {
-            fprintf(stderr, "could not decode %s=%s\n", long_options[option_index].name, optarg);
+            fprintf(stderr, "could not decode %s=%s (%lld)\n", long_options[option_index].name, optarg, ret);
             return ret;
           }
           args->params.transfer.transferSize = ret;
+          break;
+        }
+
+        if (strcmp(long_options[option_index].name, "overwrite") == 0) {
+          args->overwrite = true;
           break;
         }
 
@@ -156,6 +177,7 @@ size_t getCommandArgs(int argc, char** argv, ecudump_args_t* args)
         }
         if(strcmp(long_options[option_index].name, "download") == 0) {
           command = ECUDUMP_READ_MEM;
+          return 1;
           if (optarg)
             strcpy(args->fileName, optarg);
           break;
@@ -183,15 +205,18 @@ size_t getCommandArgs(int argc, char** argv, ecudump_args_t* args)
       case 'd': {
         if(command == 0) {
           command = ECUDUMP_READ_MEM;
+          if (optarg)
+              strcpy(args->fileName, optarg);
           break;
         }
-        fprintf(stderr, "command must be [u]pload OR [d]ownload\n");
         command = 0;
         break;
       }
       case 'u': {
         if(command == 0) {
           command = ECUDUMP_WRITE_MEM;
+          if (optarg)
+              strcpy(args->fileName, optarg);
           break;
         }
         fprintf(stderr, "command must be [u]pload OR [d]ownload\n");
@@ -213,6 +238,9 @@ size_t getCommandArgs(int argc, char** argv, ecudump_args_t* args)
       case 'n':
         if(command) {fprintf(stderr, "UNLOCK command is exclusive\n"); command = 0; break;}
         command = ECUDUMP_UNLOCK;
+        break;
+      case 'f':
+        args->overwrite = true;
         break;
       case 'v':
         args->verbose = true;

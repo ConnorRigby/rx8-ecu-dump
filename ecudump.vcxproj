@@ -92,18 +92,25 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="J2534\J2534.cpp" />
+    <ClCompile Include="lib\getopt\getopt.c" />
+    <ClCompile Include="src\args.cpp" />
     <ClCompile Include="src\librx8.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\progressbar.cpp" />
     <ClCompile Include="src\util.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="CHANGELOG.md" />
     <None Include="LICENSE.md" />
     <None Include="README.md" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="lib\getopt\getopt.h" />
+    <ClInclude Include="src\args.h" />
+    <ClInclude Include="src\bootloader.h" />
     <ClInclude Include="src\librx8.h" />
     <ClInclude Include="src\OBD2.h" />
+    <ClInclude Include="src\payload.h" />
     <ClInclude Include="src\UDS.h" />
     <ClInclude Include="src\util.h" />
     <ClInclude Include="src\progressbar.h" />

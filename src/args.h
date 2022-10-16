@@ -64,8 +64,10 @@ typedef struct ecudump_args {
 	ecudump_cmd_t command;
 	char fileName[255];
 	bool verbose;
+	bool overwrite;
 	ecudump_params_t params;
 } ecudump_args_t;
 
+void printUsage(int argc, char** argv, ecudump_args_t* args);
 void decomposeArgs(ecudump_args_t* args);
 size_t getCommandArgs(int argc, char** argv, ecudump_args_t* args);

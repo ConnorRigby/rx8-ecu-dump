@@ -16,6 +16,12 @@
     <ClCompile Include="src\progressbar.cpp">
       <Filter>Src</Filter>
     </ClCompile>
+    <ClCompile Include="src\args.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="lib\getopt\getopt.c">
+      <Filter>Src</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Docs">
@@ -30,6 +36,9 @@
       <Filter>Docs</Filter>
     </None>
     <None Include="README.md">
+      <Filter>Docs</Filter>
+    </None>
+    <None Include="CHANGELOG.md">
       <Filter>Docs</Filter>
     </None>
   </ItemGroup>
@@ -47,6 +56,18 @@
       <Filter>Src</Filter>
     </ClInclude>
     <ClInclude Include="src\librx8.h">
+      <Filter>Src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\args.h">
+      <Filter>Src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\bootloader.h">
+      <Filter>Src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\payload.h">
+      <Filter>Src</Filter>
+    </ClInclude>
+    <ClInclude Include="lib\getopt\getopt.h">
       <Filter>Src</Filter>
     </ClInclude>
   </ItemGroup>

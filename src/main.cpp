@@ -152,7 +152,7 @@ size_t j2534Initialize()
 	return STATUS_OK;
 }
 
-#ifdef WIN32
+#if defined(_WIN32) || defined(WIN32) || defined (_WIN64) || defined (WIN64)
 int _tmain(int argc, _TCHAR* argv[])
 #else
 int main(int argc, char** argv)
@@ -167,11 +167,13 @@ int main(int argc, char** argv)
 	uint8_t *seed=NULL, *key=NULL;
 
 	time_t commandStart, commandEnd;
+	char transferFilename[255] = { 0 };
 	FILE* transferFile = NULL;
 	ecudump_args_t args = {0};
 
 	if(getCommandArgs(argc, argv, &args)) {
-		fprintf(stderr, "Failed to get args\n");
+		fprintf(stderr, "Unknown arguments\n");
+		printUsage(argc, argv, &args);
 		return 1;
 	}
 
@@ -180,7 +182,10 @@ int main(int argc, char** argv)
 	uint32_t transferSize = args.params.transfer.transferSize;
 	uint32_t bytesTransfered = 0;
 	uint32_t endAddress = address+transferSize;
-	uint16_t chunkRemainder;
+	uint16_t chunkRemainder = 0;
+	
+	float numChunks = (float)transferSize / (float)chunkSize;
+
 	chunkSize ? chunkRemainder = transferSize%chunkSize : chunkRemainder = 0;
 	ecudump_cmd_t command = args.command;
 	assert(chunkSize < transferSize);
@@ -189,12 +194,16 @@ int main(int argc, char** argv)
 		decomposeArgs(&args);
 		LOGI(TAG, "info=\n"
 							"\t  start=0x%08x\n"
-							"\t  chunk=0x%08x\n"
+							"\t  end=0x%08x\n"
+							"\t  chunksize=0x%08x\n"
 							"\t  transfersize=0x%08x\n"
-							"\t  remainder=0x%d\n",
+			                "\t  numchunks=%f\n"
+							"\t  remainder=0x%08x\n",
 							address,
+							endAddress,
 							chunkSize,
 							transferSize,
+						    numChunks,
 							chunkRemainder
 		);
 	}
@@ -272,28 +281,39 @@ int main(int argc, char** argv)
 		assert(strlen(calibrationID) > 0);
 		assert(strlen(vin) + 1 + strlen(calibrationID) + 3 < 255);
 
-		if(args.fileName == NULL) {
+		if(args.fileName[0] == NULL) {
 			// example: JM1FE173370212600-N3M5EF00013H6020.bin
-			strcpy(args.fileName, vin);
-			strcpy(args.fileName + strlen(vin), "-");
-			strcpy(args.fileName + strlen(vin) + 1, calibrationID);
-			strcpy(args.fileName + strlen(vin) + 1 + strlen(calibrationID), ".bin");
+			strcpy(transferFilename, vin);
+			strcpy(transferFilename + strlen(vin), "-");
+			strcpy(transferFilename + strlen(vin) + 1, calibrationID);
+			strcpy(transferFilename + strlen(vin) + 1 + strlen(calibrationID), ".bin");
 		} else {
-			strcpy(args.fileName, args.fileName);
+			strcpy(transferFilename, args.fileName);
 		}
 
-		if (access(args.fileName, F_OK) == 0) {
-			LOGE(TAG, "Removing old ROM %s", args.fileName);
-			if(remove(args.fileName) != 0) {
-				LOGE(TAG, "Could not delete old file %s", strerror(errno));
-				status = -errno;
+		LOGI(TAG, "Using %s for transfer", transferFilename);
+
+		if (args.overwrite) {
+			if (access(transferFilename, F_OK) == 0) {
+				LOGE(TAG, "Removing old file %s", transferFilename);
+				if(remove(args.fileName) != 0) {
+					LOGE(TAG, "Could not remove old file %s", strerror(errno));
+					status = -errno;
+					goto cleanup;
+				}
+			}
+		}
+		else {
+			if (access(transferFilename, F_OK) == 0) {
+				LOGE(TAG, "Not overwriting old file %s (use --overwrite if you want this)", transferFilename);
+				status = -STATUS_FAIL_DOWNLOAD;
 				goto cleanup;
 			}
 		}
 
-		transferFile = fopen(args.fileName, "ab+");
+		transferFile = fopen(transferFilename, "ab+");
 		if(!transferFile) {
-			LOGE(TAG, "Failed to open dump file %s", strerror(errno));
+			LOGE(TAG, "Failed to open %s %s", transferFilename, strerror(errno));
 			transferFile = NULL;
 			status = -errno;
 			goto cleanup;
@@ -306,7 +326,7 @@ int main(int argc, char** argv)
 
 		LOGI(TAG, "Starting memory read 0x%08X-0x%08X into %s", 
 					address, 
-					address+transferSize,
+					endAddress,
 					args.fileName
 		);
 		for(bytesTransfered=0; address < endAddress; address+=chunkSize, bytesTransfered+=chunkSize, transferBuffer+=chunkSize) {
@@ -322,14 +342,26 @@ int main(int argc, char** argv)
 				status = -STATUS_FAIL_DOWNLOAD;
 				goto cleanup;
 			}
-			printProgress(transferSize, transferSize);
+			bytesTransfered += chunkRemainder;
+			printProgress(bytesTransfered, transferSize);
 		}
 
-		assert(bytesTransfered == transferSize);
+		if (bytesTransfered != transferSize) {
+			LOGE(TAG, "Only transfered %08X / %08X bytes", bytesTransfered, transferSize);
+		}
 		bytesTransfered = fwrite(transferBuffer-transferSize, transferSize, 1, transferFile);
-		assert(bytesTransfered == transferSize);
-		fflush(transferFile);
 
+#if defined(_WIN32) || defined(WIN32) || defined (_WIN64) || defined (WIN64)
+		// fwrite on windows returns the write count, not the number of bytes written.
+		if(bytesTransfered > 0)
+			bytesTransfered *= transferSize;
+#endif
+
+		if (bytesTransfered != transferSize) {
+			LOGE(TAG, "Only wrote %08X / %08X bytes", bytesTransfered, transferSize);
+		}
+
+		fflush(transferFile);
 		time(&commandEnd);
 		LOGI(TAG, "Successfully read memory to %s Took %.0lf seconds", args.fileName, difftime(commandEnd,commandStart));
 	}
