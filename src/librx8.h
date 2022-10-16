@@ -86,11 +86,10 @@ public:
 	/** Read memory starting at `start` and of size `chunkSize` into `data`. ECU must be `unlock()`ed for this to work. */
 	size_t readMem(uint32_t start, uint16_t chunkSize, char** data);
 
-	/** I have no idea what this is, but it's important. Some sort of bootloader mode or something. */
-	size_t sendThatWeirdPayload();
+	/** Puts the ECU into bootloader mode. this allows requestDownload to work */
+	size_t requestBootloaderMode();
 
 	size_t requestDownload(uint32_t size);
-	size_t requestUpload(uint32_t size);
 
 	size_t sendPayload(unsigned char* payload, uint32_t size);
 

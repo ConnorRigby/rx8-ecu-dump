@@ -25,15 +25,12 @@ limitations under the License.
 #include <tchar.h>
 #include <windows.h>
 #include <conio.h>
-
 // access
 #include <io.h>
 #define F_OK 0
 #define access _access
 #else
-
 #include <unistd.h>
-
 #endif
 
 #include "J2534.h"
@@ -54,6 +51,10 @@ static const long STATUS_FAIL_DIAG     = 4;
 static const long STATUS_FAIL_SEED     = 5;
 static const long STATUS_FAIL_KEY      = 6;
 static const long STATUS_FAIL_UNLOCK   = 7;
+static const long STATUS_FAIL_DOWNLOAD = 8;
+static const long STATUS_FAIL_BOOTLOADER = 9;
+static const long STATUS_FAIL_UPLOAD     = 9;
+static const long STATUS_FAIL_RESET      = 10;
 
 static J2534 j2534;
 static RX8* ecu;
@@ -157,150 +158,45 @@ int _tmain(int argc, _TCHAR* argv[])
 int main(int argc, char** argv)
 #endif
 {
-	ecudump_cmd_t command = 0;
 	unsigned long status = 0;
-	int opt;
-
-	// user input for optargs
-	char *inputAddress     = NULL,
-			 *inputAddressSize = NULL,
-			 *inputValue       = NULL,
-			 *inputROMDownload = NULL,
-			 *inputROMUpload   = NULL;
 
 	// buffers for commands
-	char *vin           = NULL, 
-			 *calibrationID = NULL, 
-			 *dump          = NULL;
+	char *vin            = NULL, 
+			 *calibrationID  = NULL, 
+			 *transferBuffer = NULL;
 	uint8_t *seed=NULL, *key=NULL;
 
-	// state for command progress
 	time_t commandStart, commandEnd;
-	uint32_t address = 0;
-	//uint16_t chunkSize = 0x0280;
-	//uint32_t dumpSize = 0x80000;
-	uint16_t chunkSize = 0x00ff;
-	uint32_t dumpSize = 0xfffe;
-	uint16_t remainder = 128;
+	FILE* transferFile = NULL;
+	ecudump_args_t args = {0};
 
-	FILE* romFile = NULL;
-	char fileName[255] = {0};
-	char* buffer = NULL;
-	size_t shouldReset = false;
-
-	while ((opt = getopt(argc, argv, "rc:a:s:v:i:o::")) != -1) {
-		switch (opt) {
-			case 'r': {
-				shouldReset = true;
-				break;
-			}
-			case 'c': {
-				assert(optarg != NULL);
-				if(strcmp(optarg, "vin") == 0) {
-					command = ECUDUMP_GET_VIN;
-					break;
-				}
-				if(strcmp(optarg, "calid") == 0) {
-					command = ECUDUMP_GET_CALID;
-					break;
-				}
-				if(strcmp(optarg, "seed") == 0) {
-					command = ECUDUMP_SEED;
-					break;
-				}
-				if(strcmp(optarg, "key") == 0) {
-					command = ECUDUMP_CALCULATE_KEY;
-					break;
-				}
-				if(strcmp(optarg, "unlock") == 0) {
-					command = ECUDUMP_UNLOCK;
-					break;
-				}
-				if(strcmp(optarg, "read") == 0) {
-					command = ECUDUMP_READ_MEMORY;
-					break;
-				}
-				if(strcmp(optarg, "write") == 0) {
-					command = ECUDUMP_WRITE_MEMORY;
-					break;
-				}
-				if(strcmp(optarg, "download") == 0) {
-					command = ECUDUMP_DOWNLOAD_ROM;
-					break;
-				}
-				if(strcmp(optarg, "upload") == 0) {
-					command = ECUDUMP_UPLOAD_ROM;
-					break;
-				}
-
-				if(command == 0)
-					fprintf(stderr, "Unknown command %s\n", optarg);
-
-				break;
-			}
-			case 'a': {
-				assert(optarg != NULL);
-				inputAddress = optarg;
-				break;
-			}
-			case 'v': {
-				assert(optarg != NULL);
-				inputValue = optarg;
-				break;
-			}
-			case 'i': {
-				assert(optarg != NULL);
-				inputROMUpload = optarg;
-				break;
-			}
-			case 'o': {
-				assert(optarg != NULL);
-				inputROMDownload = optarg;
-				break;
-			}
-			case 's': {
-				assert(optarg != NULL);
-				inputAddressSize = optarg;
-				break;
-			}
-		default:
-				fprintf(stderr, "Usage: %s [-c] command\n", argv[0]);
-				return 1;
-		}
-	}
-
-	if(command == 0) {
-		fprintf(stderr, "Usage: %s [-c] command\n", argv[0]);
+	if(getCommandArgs(argc, argv, &args)) {
+		fprintf(stderr, "Failed to get args\n");
 		return 1;
 	}
 
-	if(command == ECUDUMP_READ_MEMORY) {
-		if(inputAddress == NULL) {
-			fprintf(stderr, "read requires -a [address]\n");
-			return 1;
-		}
-		if(inputAddressSize == NULL) {
-			fprintf(stderr, "read requires -s [size]\n");
-			return 1;
-		}
+	uint16_t chunkSize = args.params.transfer.chunkSize;
+	uint32_t address = args.params.transfer.startAddress;
+	uint32_t transferSize = args.params.transfer.transferSize;
+	uint32_t bytesTransfered = 0;
+	uint32_t endAddress = address+transferSize;
+	uint16_t chunkRemainder;
+	chunkSize ? chunkRemainder = transferSize%chunkSize : chunkRemainder = 0;
+	ecudump_cmd_t command = args.command;
+	assert(chunkSize < transferSize);
 
-		LOGE(TAG, "read not implemented");
-		return 1;
-	}
-
-	if(command == ECUDUMP_WRITE_MEMORY) {
-		if((inputAddress == NULL) || (inputValue == NULL)) {
-			fprintf(stderr, "write requires -a [address]\n");
-			return 1;
-		}
-
-		if((inputValue == NULL) || (inputValue == NULL)) {
-			fprintf(stderr, "write requires -v [value]\n");
-			return 1;
-		}
-
-		LOGE(TAG, "write not implemented");
-		return 1;
+	if(args.verbose) {
+		decomposeArgs(&args);
+		LOGI(TAG, "info=\n"
+							"\t  start=0x%08x\n"
+							"\t  chunk=0x%08x\n"
+							"\t  transfersize=0x%08x\n"
+							"\t  remainder=0x%d\n",
+							address,
+							chunkSize,
+							transferSize,
+							chunkRemainder
+		);
 	}
 
 	if (j2534Initialize()) {
@@ -309,33 +205,8 @@ int main(int argc, char** argv)
 		return -STATUS_FAIL_PASSTHRU;
 	}
 	LOGI(TAG, "j2534 connection initialized ok");
+
 	ecu = new RX8(j2534, devID, chanID);
-	if(shouldReset) {
-		LOGI(TAG, "resetting ECU");
-		if(!ecu->reset()) {
-		   LOGI(TAG, "ECU reset failed");
-		}
-	}
-	// if(ecu->sendPayload(out_bin, out_bin_len)) {
-	// 	LOGE(TAG, "payload failed to send");
-	// 	goto cleanup;
-	// }
-
-// if(ecu->sendThatWeirdPayload()) {
-// 			LOGE(TAG, "Could not enter bootloader mode");
-
-// 			goto cleanup;
-
-// }
-// 		if(ecu->requestDownload(out_bin_len)) {
-// 			LOGE(TAG, "Could not enter request download mode");
-// 			goto cleanup;
-// 		}
-
-		// if(ecu->requestDownload(out_bin_len)) {
-		// 	LOGE(TAG, "Could not enter request download mode");
-		// 	goto cleanup;
-		// }
 
 	if(_GET_VIN(command)) {
 		if (ecu->getVIN(&vin)) {
@@ -355,14 +226,12 @@ int main(int argc, char** argv)
 		LOGI(TAG, "Got calibration ID = %s", calibrationID);
 	}
 
-
 	if (!ecu->initDiagSession(MAZDA_SBF_SESSION_81)) {
 		LOGE(TAG, "failed to init diag session 81");
 		status = -STATUS_FAIL_DIAG;
 		goto cleanup;
 	}
 
-	
 	if (!ecu->initDiagSession(MAZDA_SBF_SESSION_85)) {
 		LOGE(TAG, "failed to init diag session 85");
 		status = -STATUS_FAIL_DIAG;
@@ -378,7 +247,6 @@ int main(int argc, char** argv)
 		}
 		LOGI(TAG, "Got seed = { %02X, %02X, %02X }", seed[0], seed[1], seed[2]);
 	}
-
 	if(_CALCULATE_KEY(command)) {
 		if (ecu->calculateKey(seed, &key)) {
 			LOGE(TAG, "failed to calculate key");
@@ -397,108 +265,94 @@ int main(int argc, char** argv)
 		LOGI(TAG, "Unlocked ECU");
 	}
 
-	// if(ecu->sendThatWeirdPayload()) {
-	// 	LOGE(TAG, "Could not enter bootloader(?) mode");
-	// 	status = -69;
-	// 	goto cleanup;
-	// }
-
-	// if(!ecu->requestDownload(out_bin_len)) {
-	// 	LOGE(TAG, "Could not enter request download mode");
-	// 	status = -69;
-	// 	goto cleanup;
-	// }
-		// if(!ecu->requestUpload(out_bin_len)) {
-		// 	LOGE(TAG, "Could not enter request download mode");
-		// 	status = -69;
-		// 	goto cleanup;
-		// }
-/*
-	address = 0x6000;
-	LOGE(TAG, "ugh %032X", address);
-	for(address = 0x6000; address < 0xffff; address += 0xff) {
-
-		if (ecu->readMem(address,0xff, &buffer)) {
-		LOGE(TAG, "Failed to read memory 0x%016X", address);
-		// goto cleanup;
-		}
-	}
-	return 1;
-*/
 	time(&commandStart);
-	if(_DOWNLOAD_ROM(command)) {
-		LOGI(TAG, "Starting ROM dump, this will take a moment..");
+	if(_READ_MEM(command)) {
 		// sanity check assertions just in case of CAN errors
 		assert(strlen(vin) > 0);
 		assert(strlen(calibrationID) > 0);
 		assert(strlen(vin) + 1 + strlen(calibrationID) + 3 < 255);
 
-		// default rom name
-		if(inputROMDownload == NULL) {
+		if(args.fileName == NULL) {
 			// example: JM1FE173370212600-N3M5EF00013H6020.bin
-			strcpy(fileName, vin);
-			strcpy(fileName + strlen(vin), "-");
-			strcpy(fileName + strlen(vin) + 1, calibrationID);
-			strcpy(fileName + strlen(vin) + 1 + strlen(calibrationID), ".bin");
+			strcpy(args.fileName, vin);
+			strcpy(args.fileName + strlen(vin), "-");
+			strcpy(args.fileName + strlen(vin) + 1, calibrationID);
+			strcpy(args.fileName + strlen(vin) + 1 + strlen(calibrationID), ".bin");
 		} else {
-			strcpy(fileName, inputROMDownload);
+			strcpy(args.fileName, args.fileName);
 		}
 
-		if (access(fileName, F_OK) == 0) {
-			LOGE(TAG, "Removing old ROM %s", fileName);
-			if(remove(fileName) != 0) {
+		if (access(args.fileName, F_OK) == 0) {
+			LOGE(TAG, "Removing old ROM %s", args.fileName);
+			if(remove(args.fileName) != 0) {
 				LOGE(TAG, "Could not delete old file %s", strerror(errno));
 				status = -errno;
 				goto cleanup;
 			}
 		}
 
-		romFile = fopen(fileName, "ab+");
-		if(!romFile) {
+		transferFile = fopen(args.fileName, "ab+");
+		if(!transferFile) {
 			LOGE(TAG, "Failed to open dump file %s", strerror(errno));
-			romFile = NULL;
+			transferFile = NULL;
 			status = -errno;
 			goto cleanup;
 		}
-
-		for(address = 0x6000; address < dumpSize; address+=chunkSize) {
-			if (ecu->readMem(address, chunkSize, &dump))
-				break;
-			fwrite(dump, chunkSize, 1, romFile);
-			printProgress(address, dumpSize);
-		}
-
-		if (ecu->readMem(address, remainder, &dump)) {
-			LOGE(TAG, "Failed to dump remainder of ROM %2X", address);
+		transferBuffer = (char*)malloc(transferSize);
+		if(!transferBuffer) {
+			status=-ENOMEM;
 			goto cleanup;
 		}
-		fwrite(dump, remainder, 1, romFile);
-		fflush(romFile);
-		printProgress(dumpSize, dumpSize);
+
+		LOGI(TAG, "Starting memory read 0x%08X-0x%08X into %s", 
+					address, 
+					address+transferSize,
+					args.fileName
+		);
+		for(bytesTransfered=0; address < endAddress; address+=chunkSize, bytesTransfered+=chunkSize, transferBuffer+=chunkSize) {
+			assert(endAddress > address);
+			if (ecu->readMem(address, chunkSize, &transferBuffer))
+				break;
+			printProgress(bytesTransfered, transferSize);
+		}
+
+		if(chunkRemainder > 0) {
+			if (ecu->readMem(address, chunkRemainder, &transferBuffer)) {
+				LOGE(TAG, "Failed to read remainder of memory %04X", address);
+				status = -STATUS_FAIL_DOWNLOAD;
+				goto cleanup;
+			}
+			printProgress(transferSize, transferSize);
+		}
+
+		assert(bytesTransfered == transferSize);
+		bytesTransfered = fwrite(transferBuffer-transferSize, transferSize, 1, transferFile);
+		assert(bytesTransfered == transferSize);
+		fflush(transferFile);
 
 		time(&commandEnd);
-		LOGI(TAG, "Successfully dumped ROM to %s Took %.0lf seconds", fileName, difftime(commandEnd,commandStart));
+		LOGI(TAG, "Successfully read memory to %s Took %.0lf seconds", args.fileName, difftime(commandEnd,commandStart));
 	}
 
-	if(_UPLOAD_ROM(command)) {
+	if(_WRITE_MEM(command)) {
 		LOGE(TAG, "ROM Upload not implemented yet");
 
-		if(ecu->sendThatWeirdPayload()) {
+		if(ecu->requestBootloaderMode()) {
 			LOGE(TAG, "Could not enter bootloader(?) mode");
-			status = -69;
+			status = -STATUS_FAIL_BOOTLOADER;
 			goto cleanup;
 		}
 
 		if(!ecu->requestDownload(out_bin_len)) {
 		 	LOGE(TAG, "Could not enter request download mode");
-		 	status = -69;
+		 	status = -STATUS_FAIL_DOWNLOAD;
 		 	goto cleanup;
-		 }
+		}
 
 		if(ecu->sendPayload(out_bin, out_bin_len)) {
 			LOGE(TAG, "payload failed to send");
-			status = -69;
-//			goto cleanup;
+			status = -STATUS_FAIL_DOWNLOAD;
+			goto cleanup;
 		}
 
 		time(&commandEnd);
@@ -506,23 +360,23 @@ int main(int argc, char** argv)
 
 		if(!ecu->requestTransferExit()) {
 			LOGE(TAG, "Could not complete upload");
-			status = -69;
-//			goto cleanup;
+			status = -STATUS_FAIL_DOWNLOAD;
+			goto cleanup;
 		}
 
 		if(!ecu->reset()) {
 			LOGE(TAG, "Could not reset ECU");
-			status = -69;
+			status = -STATUS_FAIL_RESET;
 			goto cleanup;
 		}
 
 		status = 0;
 	}
 cleanup:
-	if(romFile) {
-		fflush(romFile);
-		fclose(romFile);
-		romFile = NULL;
+	if(transferFile) {
+		fflush(transferFile);
+		fclose(transferFile);
+		transferFile = NULL;
 	}
 // TODO: it seems like calling PassThruDisconnect or PassThruClose causes
 //       error inside the J2534 dll. For now, skip it

@@ -14,6 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+/*
+ * TODO:
+ * 		* handle uds errors in a common way
+ *    * add common handler for each command
+ */
+
 #include <string.h>
 #include <stdio.h>
 #include <assert.h>
@@ -29,6 +35,13 @@ limitations under the License.
 
 static const char* TAG = "RX8";
 
+/**
+ * @brief Construct a new ecu object
+ * 
+ * @param j2534 - passthru interface
+ * @param devID - passthru interface
+ * @param chanID - passthru interface
+ */
 RX8::RX8(J2534& j2534, unsigned long devID, unsigned long chanID)
 {
 	_j2534 = j2534;
@@ -41,7 +54,12 @@ RX8::RX8(J2534& j2534, unsigned long devID, unsigned long chanID)
 	memset(_rx_payload, 255, sizeof(PASSTHRU_MSG) * RX_BUFFER_LEN);
 }
 
-/* Fills buffer `vin` with the vin. returns 0 on success */
+/**
+ * @brief get the VIN from the ECU
+ * 
+ * @param vin     pointer to a buffer to store the vin
+ * @return size_t 0 on success > 0 otherwise
+ */
 size_t RX8::getVIN(char** vin)
 {
 	*vin = (char*)malloc(VIN_LENGTH);
@@ -107,6 +125,12 @@ cleanup:
 	return 1;
 }
 
+/**
+ * @brief reads the calid from the ECU
+ * 
+ * @param calibrationID pointer to a buffer to store the id
+ * @return size_t       0 if successful, >0 if not
+ */
 size_t RX8::getCalibrationID(char** calibrationID)
 {
 	*calibrationID = (char*)malloc(CALIBRATION_ID_LENGTH);
@@ -161,14 +185,21 @@ cleanup:
 	return 1;
 }
 
+/**
+ * @brief enter diag mode
+ * 
+ * @param session one of:
+ * 							MAZDA_SBF_SESSION_81
+ *							MAZDA_SBF_SESSION_85
+ *							MAZDA_SBF_SESSION_87
+ * @return size_t 0 if successful > 0 if not
+ */
 size_t RX8::initDiagSession(uint8_t session)
 {
 	unsigned long numTx = 1, numRx = 1;
 	prepareUDSRequest(_tx_payload, _rx_payload, numTx, numRx);
 	_tx_payload[0].Data[4] = UDS_SID_SESSION;
 	_tx_payload[0].Data[5] = session;
-	// _tx_payload[0].Data[5] = MAZDA_SBF_SESSION_87;
-	// _tx_payload[0].Data[5] = MAZDA_SBF_SESSION_85;
 	_tx_payload[0].DataSize = 6;
 
 	if (_j2534.PassThruWriteMsgs(_chanID, &_tx_payload[0], &numTx, TX_TIMEOUT)) {
@@ -206,7 +237,12 @@ size_t RX8::initDiagSession(uint8_t session)
 	return 0;
 }
 
-
+/**
+ * @brief get the seed from the ECU to be used in the unlock procedure
+ * 
+ * @param seed    pointer to a buffer to store the seed
+ * @return size_t 0 if successful, > 0 otherwise
+ */
 size_t RX8::getSeed(uint8_t** seed)
 {
 	*seed = (uint8_t*)malloc(SEED_LENGTH);
@@ -260,7 +296,13 @@ cleanup:
 	*seed = NULL;
 	return 1;
 }
-
+/**
+ * @brief calculate the key with a given seed
+ * 
+ * @param seedInput three bytes as retrieved from the ECU
+ * @param keyOut    pointer to a buffer to store the result
+ * @return size_t   0 if successful, < 0 if not. (from malloc)
+ */
 size_t RX8::calculateKey(uint8_t* seedInput, uint8_t** keyOut)
 {
 	*keyOut = (uint8_t*)malloc(3);
@@ -290,6 +332,12 @@ size_t RX8::calculateKey(uint8_t* seedInput, uint8_t** keyOut)
 	return 0;
 }
 
+/**
+ * @brief unlock the ECU to allow read/writes
+ * 
+ * @param key the key calculated with the seed
+ * @return size_t 1 if successful, 0 if not.
+ */
 size_t RX8::unlock(uint8_t* key) 
 {
 	unsigned long numTx = 1, numRx = 1;
@@ -323,7 +371,8 @@ size_t RX8::unlock(uint8_t* key)
 				return 0;
 			}
 
-			if (_rx_payload[0].Data[3] == MAZDA_RESPONSE_CANID_LSB) return (_rx_payload[0].Data[4] == 0x67) && (_rx_payload[0].Data[5] == 0x02);
+			if (_rx_payload[0].Data[3] == MAZDA_RESPONSE_CANID_LSB) 
+				return (_rx_payload[0].Data[4] == 0x67) && (_rx_payload[0].Data[5] == 0x02);
 
 			LOGE(TAG, "[unlock] Unknown message");
 			dump_msg(&_rx_payload[0]);
@@ -335,37 +384,41 @@ size_t RX8::unlock(uint8_t* key)
 	return 0;
 }
 
+/**
+ * @brief Reads memory att address of size ChunkSize into data
+ * 
+ * if address is >= 0xffff6000, the read will be from RAM. 
+ * reads between 0x80000 and 0xffff6000 are undefined, but will not error.
+ * 
+ * @param address - start address of the read
+ * @param chunkSize - amount of data to read
+ * @param data - pointer to a buffer. If this pointer is null, it will be malloc'd.
+ * @return size_t 0 if successful, > 0 otherwise
+ */
 size_t RX8::readMem(uint32_t address, uint16_t chunkSize, char** data)
 {
-	// if(address > 0x01000000) {
-	// 	LOGE(TAG, "[readMem] address must be less than 0x01000000");
-	// 	return 1;
-	// }
-
-	*data = (char*)malloc(chunkSize);
-	if (!(*data)) return -ENOMEM;
-	memset((*data), 255, chunkSize);
+	if(*data == NULL) {
+		*data = (char*)malloc(chunkSize);
+		if (!(*data)) return -ENOMEM;
+		memset((*data), 0, chunkSize);
+	}
 
 	unsigned long numTx = 1, numRx = 1;
 	prepareUDSRequest(_tx_payload, _rx_payload, numTx, numRx);
 	_tx_payload[0].Data[4] = UDS_SID_READ_MEMORY_BY_ADDRESS;
-	// 7E0#07 23 00002000 0040
 
-	_tx_payload[0].Data[5] = 0xff;
-	_tx_payload[0].Data[6] = 0xff;
+	if(address >= 0xffff6000) {
+		_tx_payload[0].Data[5] = 0xff;
+		_tx_payload[0].Data[6] = 0xff;
+	} else {
+		_tx_payload[0].Data[5] = 0;
+		_tx_payload[0].Data[6] = 0;
+	}
 	_tx_payload[0].Data[7] = address >> 8;
 	_tx_payload[0].Data[8] = address;
 	_tx_payload[0].Data[9] = chunkSize >> 8;
 	_tx_payload[0].Data[10] = chunkSize;
 	_tx_payload[0].DataSize = 11;
-
-	// _tx_payload[0].Data[5] = address >> 24;
-	// _tx_payload[0].Data[6] = address >> 16;
-	// _tx_payload[0].Data[7] = address >>  8;
-	// _tx_payload[0].Data[8] = address;
-	// _tx_payload[0].Data[9] = chunkSize >> 8;
-	// _tx_payload[0].Data[10] = chunkSize;
-	// _tx_payload[0].DataSize = 11;
 
 	if (_j2534.PassThruWriteMsgs(_chanID, &_tx_payload[0], &numTx, TX_TIMEOUT)) {
 		LOGE(TAG, "[readMem] failed to write messages");
@@ -398,10 +451,6 @@ size_t RX8::readMem(uint32_t address, uint16_t chunkSize, char** data)
 			}
 				
 			if (_rx_payload[0].Data[4] == 0x63) {
-				// LOGE(TAG, "datasize=0x%08X (0x%08X)", _rx_payload->DataSize, _rx_payload->DataSize - 5);
-				//hexdump_msg(&_rx_payload[0]);
-
-				// assert(chunkSize >= _rx_payload->DataSize);
 				memcpy((*data), &_rx_payload[0].Data[5], chunkSize);
 				return 0;
 			}
@@ -422,7 +471,7 @@ cleanup:
  * 7E0#04 B1 00 B2 00 00 00 00 ????
  * 7E8#03 F1 00 B2 00 00 00 00 ????
  */
-size_t RX8::sendThatWeirdPayload()
+size_t RX8::requestBootloaderMode()
 {
 	unsigned long numTx = 1, numRx = 1;
 	prepareUDSRequest(_tx_payload, _rx_payload, numTx, numRx);
@@ -433,14 +482,14 @@ size_t RX8::sendThatWeirdPayload()
 	_tx_payload[0].DataSize = 8;
 
 	if (_j2534.PassThruWriteMsgs(_chanID, &_tx_payload[0], &numTx, TX_TIMEOUT)) {
-		LOGE(TAG, "[sendThatWeirdPayload] failed to write messages");
+		LOGE(TAG, "[requestBootloaderMode] failed to write messages");
 		reportJ2534Error(_j2534);
 		return 1;
 	}
 
 	for (;;) {
 		if (_j2534.PassThruReadMsgs(_chanID, &_rx_payload[0], &numRx, RX_TIMEOUT)) {
-			LOGE(TAG, "[sendThatWeirdPayload] failed to read messages");
+			LOGE(TAG, "[requestBootloaderMode] failed to read messages");
 			reportJ2534Error(_j2534);
 			return 1;
 		}
@@ -448,7 +497,7 @@ size_t RX8::sendThatWeirdPayload()
 			if (_rx_payload[0].RxStatus & START_OF_MESSAGE) continue;
 			if (_rx_payload[0].Data[3] == MAZDA_REQUEST_CANID_LSB) continue;
 			if ((_rx_payload[0].Data[3] == MAZDA_RESPONSE_CANID_LSB) && (_rx_payload[0].Data[4] == UDS_NEGATIVE_RESPONSE)) {
-				LOGE(TAG, "[sendThatWeirdPayload] unknown error");
+				LOGE(TAG, "[requestBootloaderMode] unknown error");
 				dump_msg(&_rx_payload[0]);
 				return 1;
 			}
@@ -469,23 +518,18 @@ size_t RX8::requestDownload(uint32_t size)
 {
 	unsigned long numTx = 1, numRx = 1;
 	prepareUDSRequest(_tx_payload, _rx_payload, numTx, numRx);
-	_tx_payload[0].Data[4] = 0x34;
+	_tx_payload[0].Data[4] = UDS_SID_REQUEST_DOWNLOAD;
 	_tx_payload[0].Data[5] = 0x00;
 	_tx_payload[0].Data[6] = 0x00;
 	_tx_payload[0].Data[7] = 0x40;
 	_tx_payload[0].Data[8] = 0x00;
+
 	_tx_payload[0].Data[9] = size >> 24;
-
-	//_tx_payload[0].Data[10] = 0x07;
-	//_tx_payload[0].Data[11] = 0xf8;
-	//_tx_payload[0].Data[12] = 0x00;
-	//_tx_payload[0].DataSize = 13;
-
 	_tx_payload[0].Data[10] = size >> 16;
 	_tx_payload[0].Data[11] = size >> 8;
 	_tx_payload[0].Data[12] = size;
-	_tx_payload[0].DataSize = 13;
 
+	_tx_payload[0].DataSize = 13;
 
 	if (_j2534.PassThruWriteMsgs(_chanID, &_tx_payload[0], &numTx, TX_TIMEOUT)) {
 		LOGE(TAG, "[requestDownload] failed to write messages");
@@ -507,9 +551,9 @@ size_t RX8::requestDownload(uint32_t size)
 			return 0;
 		}
 
-		if (_rx_payload[0].Data[3] == MAZDA_RESPONSE_CANID_LSB) return 1;
-		// (_rx_payload[0].Data[4] == 0x74);
-		// && (_rx_payload[0].Data[5] == 0x04);
+		// TODO: check (_rx_payload[0].Data[4] == 0x74) && (_rx_payload[0].Data[5] == 0x04)
+		if (_rx_payload[0].Data[3] == MAZDA_RESPONSE_CANID_LSB) 
+			return 1;
 	}
 	
 	// unreachable
@@ -521,80 +565,52 @@ size_t RX8::requestDownload(uint32_t size)
 */
 size_t RX8::sendPayload(unsigned char* payload, uint32_t size)
 {
-	// assert(size < PM_DATA_LEN);
 	uint32_t frameIndex = 0;
+	uint32_t chunkSize = 0x401;
 	unsigned long numTx = 1, numRx = 1;
 
 	while(frameIndex < size) {
-		//LOGI(TAG, "[sendPayload] starting frame # %d", frameIndex);
-
 		prepareUDSRequest(_tx_payload, _rx_payload, numTx, numRx);
 
-		_tx_payload[0].Data[4] = 0x36;
-		memcpy(&_tx_payload[0].Data[5], payload+frameIndex, 0x401);
-		// LOGI(TAG, "[sendPayload] buffer filled", frameIndex);
-
-		_tx_payload[0].DataSize = 0x401 + 4;
+		_tx_payload[0].Data[4] = UDS_SID_TRANSFER_DATA;
+		memcpy(&_tx_payload[0].Data[5], payload+frameIndex, chunkSize);
+		_tx_payload[0].DataSize = chunkSize + 4;
+		
 		if (_j2534.PassThruWriteMsgs(_chanID, &_tx_payload[0], &numTx, 100)) {
 			LOGE(TAG, "[sendPayload] failed to write frame %d", frameIndex);
-			// reportJ2534Error(_j2534);
 			return 1;
 		}
-		//LOGI(TAG, "[sendPayload] frame %d writen. awaiting reply ", frameIndex);
 
-		for(;;) { // recv
-				// LOGI(TAG, "[sendPayload] starting read");
-
-				if (_j2534.PassThruReadMsgs(_chanID, &_rx_payload[0], &numRx, 1000)) {
-					LOGE(TAG, "[sendPayload] failed to read reply frame %d", frameIndex);
-					return 1;
-					// break;
-				}
-				if(numRx) {
-					// dump_msg(&_rx_payload[0]);
-
-					if (_rx_payload[0].RxStatus & START_OF_MESSAGE) continue; // {LOGE(TAG, "[sendPayload] START_OF_MESSAGE%d", frameIndex);continue;}
-					if (_rx_payload[0].Data[3] == MAZDA_REQUEST_CANID_LSB) continue; // echo
-
-					if ((_rx_payload[0].Data[3] == MAZDA_RESPONSE_CANID_LSB) && (_rx_payload[0].Data[4] == UDS_NEGATIVE_RESPONSE)) {
-
-						if(_rx_payload[0].Data[6] == 0x78) continue; // {LOGE(TAG, "[sendPayload] pending %d", frameIndex);continue;};
-
-/*
-7E8#03 7F 36 78 00000000 - 3byte - neg resp - 36 - requestCorrectlyReceived-ResponsePending
-... waiting while write?
-7E8#01 76 000000000000
-... continue?
-*/
-
+		for(;;) {
+			if (_j2534.PassThruReadMsgs(_chanID, &_rx_payload[0], &numRx, 1000)) {
+				LOGE(TAG, "[sendPayload] failed to read reply frame %d", frameIndex);
+				return 1;
+			}
+			if(numRx) {
+				if (_rx_payload[0].RxStatus & START_OF_MESSAGE) continue;
+				if (_rx_payload[0].Data[3] == MAZDA_REQUEST_CANID_LSB) continue;
+				if ((_rx_payload[0].Data[3] == MAZDA_RESPONSE_CANID_LSB) && (_rx_payload[0].Data[4] == UDS_NEGATIVE_RESPONSE)) {
+					if(_rx_payload[0].Data[6] == 0x78) continue; 
 						LOGE(TAG, "[sendPayload] unknown error sending frame %d", frameIndex);
 						dump_msg(&_rx_payload[0]);
 						return 1;
 					}
 
 					if (_rx_payload[0].Data[3] == MAZDA_RESPONSE_CANID_LSB) {
-						dump_msg(&_rx_payload[0]);
 						if(_rx_payload[0].Data[4] != 0x76) {
 							LOGE(TAG, "[sendPayload] error sending frame");
 							return 1;
 						}
-						// okay
 						break;
 					}
 
 					LOGE(TAG, "[sendPayload] unexpected reply");
-					//dump_msg(&_rx_payload[0]);
-				}
-				LOGE(TAG, "[sendPayload] frame %d read fallthru", frameIndex);
-				//dump_msg(&_rx_payload[0]);
-				break;
-		} // recv
-
-		LOGI(TAG, "[sendPayload] sent %d", frameIndex);
+					dump_msg(&_rx_payload[0]);
+			}
+		}
 		frameIndex+=0x400;
 		//frameIndex+=0xff;
 	}
-	
 	// unreachable
 	return 0;
 }

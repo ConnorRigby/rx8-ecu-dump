@@ -16,25 +16,56 @@ limitations under the License.
 #pragma once
 
 #include <stdint.h>
+#include <stdbool.h>
 
-static const uint16_t ECUDUMP_GET_VIN       = 0b100000000;
-static const uint16_t ECUDUMP_GET_CALID     = 0b010000000;
-static const uint16_t ECUDUMP_SEED          = 0b101000000;
-static const uint16_t ECUDUMP_CALCULATE_KEY = 0b101100000;
-static const uint16_t ECUDUMP_UNLOCK        = 0b101110000;
-static const uint16_t ECUDUMP_READ_MEMORY   = 0b101111000;
-static const uint16_t ECUDUMP_WRITE_MEMORY  = 0b101110100;
-static const uint16_t ECUDUMP_DOWNLOAD_ROM  = 0b111110010;
-static const uint16_t ECUDUMP_UPLOAD_ROM    = 0b111110001;
+/* Below commands are encoded as a bitfield. This allows some commands to
+ * easily rely on each other. For example, to unlock the ECU, one needs
+ * to read the seed and calculate the key first.
+ * And to read or write to memory, one must unlock the ECU first.
+ * See the below macros for more details.
+ */
 
-#define _GET_VIN(COMMAND)       ((COMMAND >> 8) & 1)
-#define _GET_CALID(COMMAND)     ((COMMAND >> 7) & 1)
-#define _GET_SEED(COMMAND)      ((COMMAND >> 6) & 1)
-#define _CALCULATE_KEY(COMMAND) ((COMMAND >> 5) & 1)
-#define _UNLOCK(COMMAND)        ((COMMAND >> 4) & 1)
-#define _READMEM(COMMAND)       ((COMMAND >> 3) & 1)
-#define _WRITEMEM(COMMAND)      ((COMMAND >> 2) & 1)
-#define _DOWNLOAD_ROM(COMMAND)  ((COMMAND >> 1) & 1)
-#define _UPLOAD_ROM(COMMAND)    ((COMMAND >> 0) & 1)
+static const uint16_t ECUDUMP_GET_VIN       = 0b1000000000000000;
+static const uint16_t ECUDUMP_GET_CALID     = 0b0100000000000000;
+static const uint16_t ECUDUMP_SEED          = 0b0010000000000000;
+static const uint16_t ECUDUMP_CALCULATE_KEY = 0b0011000000000000;
+static const uint16_t ECUDUMP_UNLOCK        = 0b0011100000000000;
+static const uint16_t ECUDUMP_READ_MEM      = 0b1111110000000000;
+static const uint16_t ECUDUMP_WRITE_MEM     = 0b1111101000000000;
+
+#define _GET_VIN(COMMAND)       ((COMMAND >> 15) & 1)
+#define _GET_CALID(COMMAND)     ((COMMAND >> 14) & 1)
+#define _GET_SEED(COMMAND)      ((COMMAND >> 13) & 1)
+#define _CALCULATE_KEY(COMMAND) ((COMMAND >> 12) & 1)
+#define _UNLOCK(COMMAND)        ((COMMAND >> 11) & 1)
+#define _READ_MEM(COMMAND)    ((COMMAND >> 10) & 1)
+#define _WRITE_MEM(COMMAND)  ((COMMAND >>  9) & 1)
 
 typedef uint16_t ecudump_cmd_t;
+
+/**
+ * @brief params for a transfer. 
+ * Optional, but helpful for tuning
+ * read/write speeds or if reading
+ * from ram is desired
+ * 
+ */
+typedef struct transfer_params {
+	uint32_t startAddress;
+	uint16_t chunkSize;
+	uint32_t transferSize;
+} transfer_params_t;
+
+typedef union ecudump_params {
+	transfer_params_t transfer;
+} ecudump_params_t; 
+
+typedef struct ecudump_args {
+	ecudump_cmd_t command;
+	char fileName[255];
+	bool verbose;
+	ecudump_params_t params;
+} ecudump_args_t;
+
+void decomposeArgs(ecudump_args_t* args);
+size_t getCommandArgs(int argc, char** argv, ecudump_args_t* args);
