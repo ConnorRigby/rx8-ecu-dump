@@ -207,6 +207,8 @@ int main(int argc, char** argv)
 							chunkRemainder
 		);
 	}
+	if (command == 0)
+		return 1;
 
 	if (j2534Initialize()) {
 		LOGE(TAG, "j2534Initialize() failed");

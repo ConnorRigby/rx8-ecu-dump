@@ -119,6 +119,11 @@ size_t getCommandArgs(int argc, char** argv, ecudump_args_t* args)
     if (c == -1) break;
     switch(c) {
       case 0: {
+        if (strcmp(long_options[option_index].name, "version") == 0) {
+            fprintf(stderr, "%s Version 0.9.0\n", argv[0] ? argv[0] : "ecudump");
+            return 0;
+        }
+        
         if(strcmp(long_options[option_index].name, "start-address") == 0) {
           signed long long ret = decodeHex(optarg, 0xffffffff);
           if(ret < 0) {
@@ -191,10 +196,6 @@ size_t getCommandArgs(int argc, char** argv, ecudump_args_t* args)
         if(strcmp(long_options[option_index].name, "verbose") == 0) {
           args->verbose = true;
           break; 
-        }
-        if(strcmp(long_options[option_index].name, "version") == 0) {
-          fprintf(stderr, "ecudump version = 0.2.0");
-          break;
         }
 
         if(strcmp(long_options[option_index].name, "version") == 0) {
