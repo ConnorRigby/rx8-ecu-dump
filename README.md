@@ -16,10 +16,24 @@ at tuners for ported, boosted or otherwise modified engines.
 ## Usage
 
 Execute `ecudump` or `ecudump.exe` depending on your platform. 
+
+### Downloading the ROM from an ECU
+
 It should take about 2 minutes to complete. Once complete, you
 should have a file in the same directory as the executable labeled
-with your ECU's VIN and CALID. If you experience problems, please
-feel free to reach out or open an issue. 
+with your ECU's VIN and CALID. 
+
+```powershell
+ecudump.exe --download
+```
+
+### Downloading a RAM snapshot from an ECU
+
+This should only take about 5 seconds.
+
+```powershell
+ecudump.exe --download=ramdump.bin --start-address=0xffff6000 --transfer-size=0x7D00
+```
 
 ## Planned Features
 

@@ -1,3 +1,10 @@
+## v0.9.0
+
+* Enhancements
+   * Add argument parsing
+   * prototype implemention of ROM upload
+   * allow ram download
+
 ## v0.2.0
 
 * Bug fixes
