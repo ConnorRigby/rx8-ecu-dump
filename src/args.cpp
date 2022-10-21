@@ -86,7 +86,7 @@ size_t getCommandArgs(int argc, char** argv, ecudump_args_t* args)
 
   // defaults for download
   args->params.transfer.startAddress = 0;
-  args->params.transfer.chunkSize = 0x0280;
+  args->params.transfer.chunkSize = 0x400;
   args->params.transfer.transferSize = 0x80000;
 
 	int c;
