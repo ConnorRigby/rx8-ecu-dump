@@ -325,17 +325,19 @@ int main(int argc, char** argv)
 			status=-ENOMEM;
 			goto cleanup;
 		}
+		memset(transferBuffer, 0, transferSize);
 
 		LOGI(TAG, "Starting memory read 0x%08X-0x%08X into %s", 
 					address, 
 					endAddress,
-					args.fileName
+					transferFilename
 		);
 		for(bytesTransfered=0; address < endAddress; address+=chunkSize, bytesTransfered+=chunkSize, transferBuffer+=chunkSize) {
 			assert(endAddress > address);
 			if (ecu->readMem(address, chunkSize, &transferBuffer))
 				break;
-			printProgress(bytesTransfered, transferSize);
+			if(address > chunkSize) return -1;
+			// printProgress(bytesTransfered, transferSize);
 		}
 
 		if(chunkRemainder > 0) {
@@ -351,17 +353,17 @@ int main(int argc, char** argv)
 		if (bytesTransfered != transferSize) {
 			LOGE(TAG, "Only transfered %08X / %08X bytes", bytesTransfered, transferSize);
 		}
-		bytesTransfered = fwrite(transferBuffer-transferSize, transferSize, 1, transferFile);
+		// bytesTransfered = fwrite(transferBuffer-transferSize, transferSize, 1, transferFile);
 
-#if defined(_WIN32) || defined(WIN32) || defined (_WIN64) || defined (WIN64)
-		// fwrite on windows returns the write count, not the number of bytes written.
-		if(bytesTransfered > 0)
-			bytesTransfered *= transferSize;
-#endif
+// #if defined(_WIN32) || defined(WIN32) || defined (_WIN64) || defined (WIN64)
+// 		// fwrite on windows returns the write count, not the number of bytes written.
+// 		if(bytesTransfered > 0)
+// 			bytesTransfered *= transferSize;
+// #endif
 
-		if (bytesTransfered != transferSize) {
-			LOGE(TAG, "Only wrote %08X / %08X bytes", bytesTransfered, transferSize);
-		}
+// 		if (bytesTransfered != transferSize) {
+// 			LOGE(TAG, "Only wrote %08X / %08X bytes", bytesTransfered, transferSize);
+// 		}
 
 		fflush(transferFile);
 		time(&commandEnd);
