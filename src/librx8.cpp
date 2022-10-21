@@ -419,10 +419,11 @@ size_t RX8::readMem(uint32_t address, uint16_t chunkSize, char** data)
 	_tx_payload[0].Data[9] = chunkSize >> 8;
 	_tx_payload[0].Data[10] = chunkSize;
 	_tx_payload[0].DataSize = 11;
-
+	/*
 	fprintf(stderr, "tx paylaod\n\n");
 	hexdump_msg(&_tx_payload[0]);
 	fprintf(stderr, "\n\n\n\n");
+	*/
 	if (_j2534.PassThruWriteMsgs(_chanID, &_tx_payload[0], &numTx, TX_TIMEOUT)) {
 		LOGE(TAG, "[readMem] failed to write messages");
 		reportJ2534Error(_j2534);
@@ -454,9 +455,10 @@ size_t RX8::readMem(uint32_t address, uint16_t chunkSize, char** data)
 			}
 				
 			if (_rx_payload[0].Data[4] == 0x63) {
-				fprintf(stderr, "chunksize=%08x datasize=%08x\n\n", chunkSize, _rx_payload[0].DataSize);
-				// memcpy(*data, _rx_payload[0].Data+5, chunkSize);
-				hexdump(_rx_payload[0].Data, 0xff);
+				//fprintf(stderr, "chunksize=%08x datasize=%08x\n\n", chunkSize, _rx_payload[0].DataSize);
+				assert(_rx_payload[0].DataSize == chunkSize + 5);
+				memcpy(*data, _rx_payload[0].Data+5, chunkSize);
+				//hexdump(_rx_payload[0].Data, 0xff);
 				return 0;
 			}
 

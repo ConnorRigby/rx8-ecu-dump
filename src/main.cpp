@@ -336,8 +336,9 @@ int main(int argc, char** argv)
 			assert(endAddress > address);
 			if (ecu->readMem(address, chunkSize, &transferBuffer))
 				break;
-			if(address > chunkSize) return -1;
-			// printProgress(bytesTransfered, transferSize);
+			//if(address > chunkSize) return -1;
+			//fwrite(transferBuffer, chunkSize, 1, transferFile);
+			printProgress(bytesTransfered, transferSize);
 		}
 
 		if(chunkRemainder > 0) {
@@ -353,7 +354,7 @@ int main(int argc, char** argv)
 		if (bytesTransfered != transferSize) {
 			LOGE(TAG, "Only transfered %08X / %08X bytes", bytesTransfered, transferSize);
 		}
-		// bytesTransfered = fwrite(transferBuffer-transferSize, transferSize, 1, transferFile);
+		bytesTransfered = fwrite(transferBuffer-transferSize, transferSize, 1, transferFile);
 
 // #if defined(_WIN32) || defined(WIN32) || defined (_WIN64) || defined (WIN64)
 // 		// fwrite on windows returns the write count, not the number of bytes written.
