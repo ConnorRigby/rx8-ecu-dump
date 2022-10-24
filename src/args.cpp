@@ -33,6 +33,8 @@ void decomposeArgs(ecudump_args_t* args)
     "\ttransfer.startAddress = 0x%08X\n"
     "\ttransfer.transferSize = 0x%08X\n"
     "\ttransfer.chunkSize    = 0x%04X\n"
+    "\rWRITEMEM=\n"
+    "\twritemem.SBLfileName = %s\n"
     ,
     args->command,
     args->fileName[0] ? args->fileName : "NULL",
@@ -45,7 +47,8 @@ void decomposeArgs(ecudump_args_t* args)
     _WRITE_MEM(args->command),
     args->params.transfer.startAddress,
     args->params.transfer.transferSize,
-    args->params.transfer.chunkSize
+    args->params.transfer.chunkSize,
+    args->params.write.SBLfileName
   );
 }
 
@@ -83,19 +86,13 @@ size_t getCommandArgs(int argc, char** argv, ecudump_args_t* args)
   assert(args != NULL);
   memset(args, 0, sizeof(args));
   ecudump_cmd_t command = 0;
-
-  // defaults for download
-  args->params.transfer.startAddress = 0;
-  args->params.transfer.chunkSize = 0x400;
-  args->params.transfer.transferSize = 0x80000;
-
-	int c;
-	for(;;) {
+  int c;
+  for(;;) {
     int option_index = 0;
     static struct option long_options[] = 
     {
       {"download", optional_argument, NULL,  'd'},
-      {"upload",   optional_argument, NULL,  'u'},
+      {"upload",   required_argument, NULL,  'u'},
       {"vin",      no_argument,       NULL,  0  },
       {"calid",    no_argument,       NULL,  'c'},
       {"seed",     no_argument,       NULL,  's'},
@@ -108,10 +105,14 @@ size_t getCommandArgs(int argc, char** argv, ecudump_args_t* args)
       {"chunk-size",    required_argument, NULL, 0},
       {"overwrite",     no_argument,       NULL, 'f'},
 
+      // write mem options
+      {"sbl", required_argument, NULL, 0},
+
       // meta
       {"help",     no_argument,       NULL,  'h'},
       {"verbose",  no_argument,       NULL,  'v'},
       {"version",  no_argument,       NULL,   0 },
+      {"dry-run",  no_argument,       NULL,   0 },
       {NULL,       0,                 NULL,   0 }
     };
 
@@ -135,7 +136,7 @@ size_t getCommandArgs(int argc, char** argv, ecudump_args_t* args)
         }
 
         if(strcmp(long_options[option_index].name, "chunk-size") == 0) {
-            signed long long ret = decodeHex(optarg, 0xffff);
+          signed long long ret = decodeHex(optarg, 0xffff);
           if(ret < 0) {
             fprintf(stderr, "could not decode %s=%s (%lld)\n", long_options[option_index].name, optarg, ret);
             return ret;
@@ -154,9 +155,20 @@ size_t getCommandArgs(int argc, char** argv, ecudump_args_t* args)
           break;
         }
 
+        if (strcmp(long_options[option_index].name, "sbl") == 0) {
+            if (optarg)
+                strcpy(args->params.write.SBLfileName, optarg);
+            break;
+        }
+
         if (strcmp(long_options[option_index].name, "overwrite") == 0) {
           args->overwrite = true;
           break;
+        }
+
+        if (strcmp(long_options[option_index].name, "dry-run") == 0) {
+            args->dryRun = true;
+            break;
         }
 
         if(command) {fprintf(stderr, "only one command may be provided\n"); command=0; break;}
@@ -182,7 +194,6 @@ size_t getCommandArgs(int argc, char** argv, ecudump_args_t* args)
         }
         if(strcmp(long_options[option_index].name, "download") == 0) {
           command = ECUDUMP_READ_MEM;
-          return 1;
           if (optarg)
             strcpy(args->fileName, optarg);
           break;
@@ -250,19 +261,46 @@ size_t getCommandArgs(int argc, char** argv, ecudump_args_t* args)
         command = 0;
         break;
       case '?':
-        fprintf(stderr, "Unknown command(?) %c\n", optopt);
-        command = 0;
-        break;
       case 1:
-        fprintf(stderr, "Unknown command(1) %s\n", optarg);
-        command = 0;
-        break;
       default: 
-        fprintf(stderr, "Unknown command %c\n", c);
         command = 0;
         break;
     }
 	}
   args->command = command;
+  if (_READ_MEM(command)) {
+      if (args->params.transfer.startAddress == 0) {
+          if (args->verbose) fprintf(stderr, "[readmem] using default start address 0x%08x\n", 0x0);
+          args->params.transfer.startAddress = 0;
+      }
+      if (args->params.transfer.chunkSize == 0) {
+          if (args->verbose) fprintf(stderr, "[readmem] using default chunk size 0x%08x\n", 0x100);
+          args->params.transfer.chunkSize = 0x100;
+      }
+      if (args->params.transfer.transferSize == 0) {
+          if (args->verbose) fprintf(stderr, "[readmem] using default transfer size 0x%08x\n", 0x80000);
+          args->params.transfer.transferSize = 0x80000;
+      }
+  }
+  else if (_WRITE_MEM(command)) {
+      if (args->params.transfer.chunkSize == 0) {
+          if (args->verbose) fprintf(stderr, "[writemem] using default chunk size 0x%08x\n", 0x400);
+          args->params.transfer.chunkSize = 0x400;
+      }
+      if (args->params.transfer.transferSize == 0) {
+          if (args->verbose) fprintf(stderr, "[writemem] using default transfer size 0x%08x\n", 0x80000);
+          args->params.transfer.transferSize = 0x80000;
+      }
+      if (strlen(args->params.write.SBLfileName) == 0) {
+          fprintf(stderr, "[writemem] SBL file is required to upload rom\n");
+          return 1;
+      }
+  }
+
+  if (args->params.transfer.chunkSize > args->params.transfer.transferSize) {
+      fprintf(stderr, "[transfer] Chunk size cannot be larger than transfer size\n");
+      return 1;
+  }
+
   return command == 0;
 }

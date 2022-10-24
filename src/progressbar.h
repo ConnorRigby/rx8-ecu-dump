@@ -18,3 +18,4 @@ limitations under the License.
 
 #include <stdint.h>
 void printProgress(const size_t amount, const size_t total);
+void resetProgress();

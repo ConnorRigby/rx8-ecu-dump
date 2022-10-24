@@ -61,12 +61,6 @@
     <ClInclude Include="src\args.h">
       <Filter>Src</Filter>
     </ClInclude>
-    <ClInclude Include="src\bootloader.h">
-      <Filter>Src</Filter>
-    </ClInclude>
-    <ClInclude Include="src\payload.h">
-      <Filter>Src</Filter>
-    </ClInclude>
     <ClInclude Include="lib\getopt\getopt.h">
       <Filter>Src</Filter>
     </ClInclude>

@@ -107,10 +107,8 @@
   <ItemGroup>
     <ClInclude Include="lib\getopt\getopt.h" />
     <ClInclude Include="src\args.h" />
-    <ClInclude Include="src\bootloader.h" />
     <ClInclude Include="src\librx8.h" />
     <ClInclude Include="src\OBD2.h" />
-    <ClInclude Include="src\payload.h" />
     <ClInclude Include="src\UDS.h" />
     <ClInclude Include="src\util.h" />
     <ClInclude Include="src\progressbar.h" />

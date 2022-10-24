@@ -53,6 +53,10 @@ static const uint8_t MAZDA_SBF_SESSION_81   = 0x81;
 static const uint8_t MAZDA_SBF_SESSION_85   = 0x85;
 static const uint8_t MAZDA_SBF_SESSION_87   = 0x87;
 
+static const uint16_t MAZDA_SBL_LENGTH      = 6144;
+static const uint16_t MAZDA_ROM_START_OFFSET = 0x2000;
+static const uint32_t MAZDA_ROM_LENGTH      = 516096 + MAZDA_ROM_START_OFFSET;
+
 class RX8
 {
 private:
@@ -89,10 +93,10 @@ public:
 	/** Puts the ECU into bootloader mode. this allows requestDownload to work */
 	size_t requestBootloaderMode();
 
-	size_t requestDownload(uint32_t size);
+	size_t requestDownload(uint16_t chunkSize, uint32_t size);
 
-	size_t sendPayload(unsigned char* payload, uint32_t size);
-
+	size_t transferData(uint32_t chunkSize, unsigned char* data);
+	
 	size_t requestTransferExit();
 
 	size_t reset();

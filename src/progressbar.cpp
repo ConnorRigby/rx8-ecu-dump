@@ -35,6 +35,15 @@ static size_t charsTotal = 0;
 static size_t progressCurrent = 0;
 static size_t progressTotal = 0;
 
+void resetProgress()
+{
+    charsCurrent = 0;
+    charsTotal = 0;
+    progressCurrent = 0;
+    progressTotal = 0;
+    fprintf(stdout, "\r");
+}
+
 void printProgress(const size_t amount, const size_t total)
 {
   size_t charsNeeded;

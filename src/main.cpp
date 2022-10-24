@@ -39,8 +39,6 @@ limitations under the License.
 #include "progressbar.h"
 #include "args.h"
 
-#include "payload.h"
-
 static const char* TAG = "ECUDump";
 
 static const long STATUS_OK            = 0;
@@ -172,11 +170,12 @@ int main(int argc, char** argv)
 	ecudump_args_t args = {0};
 
 	if(getCommandArgs(argc, argv, &args)) {
-		fprintf(stderr, "Unknown arguments\n");
+		fprintf(stderr, "Arguments are invalid.\n");
 		printUsage(argc, argv, &args);
 		return 1;
 	}
 
+	// transfer params
 	uint16_t chunkSize = args.params.transfer.chunkSize;
 	uint32_t address = args.params.transfer.startAddress;
 	uint32_t transferSize = args.params.transfer.transferSize;
@@ -187,8 +186,54 @@ int main(int argc, char** argv)
 	float numChunks = (float)transferSize / (float)chunkSize;
 
 	chunkSize ? chunkRemainder = transferSize%chunkSize : chunkRemainder = 0;
+
+	// write params
+	FILE* sblFile = NULL;
+	size_t sblLength = 0;
+
+	FILE* romFile = NULL;
+	size_t rom_length = 0;
+
+	unsigned char* writePayload = NULL;
+
 	ecudump_cmd_t command = args.command;
-	assert(chunkSize < transferSize);
+	/*
+	FILE* payload_file = fopen("sbl.bin", "wb");
+	fwrite(bootloader_bin, 1, bootloader_bin_len, payload_file);
+	fflush(payload_file);
+	fclose(payload_file);
+	return 1;
+	*/
+
+	/*
+	size_t new_payload_len = bootloader_bin_len + rom_bin_len;
+	assert(new_payload_len == out_bin_len);
+	unsigned char* new_payload = (unsigned char*)malloc(new_payload_len);
+	assert(new_payload != NULL);
+	memcpy(new_payload, bootloader_bin, bootloader_bin_len);
+	memcpy(new_payload + bootloader_bin_len, rom_bin, rom_bin_len);
+	FILE* payload_file = fopen("payload.bin", "wb");
+	fwrite(new_payload, 1, new_payload_len, payload_file);
+	fflush(payload_file);
+	fclose(payload_file);
+	fprintf(stderr, "wrote %0x08x bytes to payload.bin\n", new_payload_len);
+	return 0;
+	*/
+	/*
+	assert(new_payload_len == out_bin_len);
+	for (int i = 0; i < bootloader_bin_len; i++) {
+		assert(new_payload[i] == bootloader_bin[i]);
+		assert(new_payload[i] == out_bin[i]);
+	}
+	for (int i = 0; i < rom_bin_len; i++) {
+		//if(payload[i] != rom_bin[i])
+		assert(new_payload[bootloader_bin_len + i] == rom_bin[i]);
+	}
+	fprintf(stderr, "assertions passed?\n");
+	//return 0;
+	*/
+
+
 
 	if(args.verbose) {
 		decomposeArgs(&args);
@@ -208,6 +253,8 @@ int main(int argc, char** argv)
 		);
 	}
 	if (command == 0)
+		return 1;
+	if (args.dryRun)
 		return 1;
 
 	if (j2534Initialize()) {
@@ -372,27 +419,119 @@ int main(int argc, char** argv)
 	}
 
 	if(_WRITE_MEM(command)) {
-		LOGE(TAG, "ROM Upload not implemented yet");
+		LOGE(TAG, "ROM Upload is not finished yet. be very careful and be sure to have a backup!");
 
+		LOGI(TAG, "Reading SBL %s", args.params.write.SBLfileName);
+
+		// validate the SBL
+		sblFile = fopen(args.params.write.SBLfileName, "rb");
+		if (!sblFile) {
+			LOGE(TAG, "Failed to open SBL for reading: %s", strerror(errno));
+			status = -errno;
+			goto cleanup;
+		}
+		if (fseek(sblFile, 0, SEEK_END)) {
+			LOGE(TAG, "Failed to get length of SBL: %s", strerror(errno));
+			status = -errno;
+			goto cleanup;
+		}
+		sblLength = ftell(sblFile);
+		rewind(sblFile);
+		if (sblLength != MAZDA_SBL_LENGTH) {
+			LOGE(TAG, "Incorrect SBL length 0x%08x. Expecting 0x%08x", sblLength, MAZDA_SBL_LENGTH);
+			status = -STATUS_FAIL_BOOTLOADER;
+			goto cleanup;
+		}
+
+		// validate the ROM
+		strcpy(transferFilename, args.fileName);
+		LOGI(TAG, "Reading ROM %s", transferFilename);
+
+		transferFile = fopen(transferFilename, "rb");
+		if (!transferFile) {
+			LOGE(TAG, "Failed to open %s for reading: %s", transferFilename, strerror(errno));
+			transferFile = NULL;
+			status = -errno;
+			goto cleanup;
+		}
+		if (fseek(transferFile, 0, SEEK_END)) {
+			LOGE(TAG, "Failed to get length of ROM: %s", strerror(errno));
+			status = -errno;
+			goto cleanup;
+		}
+		rom_length = ftell(transferFile);
+		rewind(transferFile);
+		if (rom_length != MAZDA_ROM_LENGTH) {
+			LOGE(TAG, "Incorrect ROM length 0x%08x. Expecting 0x%08x", rom_length, MAZDA_ROM_LENGTH);
+			status = -STATUS_FAIL_DOWNLOAD;
+			goto cleanup;
+		}
+
+		writePayload = (unsigned char*)malloc((sblLength + rom_length) - MAZDA_ROM_START_OFFSET);
+		if (!writePayload) {
+			LOGE(TAG, "Failed to create payload buffer");
+			status = -ENOMEM;
+			goto cleanup;
+		}
+
+		if (fread(writePayload, 1, sblLength, sblFile) != sblLength) {
+			LOGE(TAG, "Failed to read SBL File into payload buffer %s", strerror(errno));
+			status = -errno;
+			goto cleanup;
+		}
+		if (fseek(transferFile, MAZDA_ROM_START_OFFSET, SEEK_CUR)) {
+			LOGE(TAG, "Failed to read ROM File into payload buffer %s", strerror(errno));
+			status = -errno;
+			goto cleanup;
+		}
+
+		if (fread(writePayload + sblLength, 1, rom_length - MAZDA_ROM_START_OFFSET, transferFile) != rom_length - MAZDA_ROM_START_OFFSET) {
+			LOGE(TAG, "Failed to read ROM File into payload buffer %s", strerror(errno));
+			status = -errno;
+			goto cleanup;
+		}
+
+		LOGI(TAG, "Starting ROM upload. Do NOT exit or cut power to the ECU!!!!!");
+		
 		if(ecu->requestBootloaderMode()) {
 			LOGE(TAG, "Could not enter bootloader(?) mode");
 			status = -STATUS_FAIL_BOOTLOADER;
 			goto cleanup;
 		}
-
-		if(!ecu->requestDownload(out_bin_len)) {
-		 	LOGE(TAG, "Could not enter request download mode");
+		
+		if(!ecu->requestDownload(chunkSize, sblLength + rom_length - MAZDA_ROM_START_OFFSET)) {
+		 	LOGE(TAG, "Could not enter request download mode chunksize=%08x payload=%08x", chunkSize, sblLength + rom_length - MAZDA_ROM_START_OFFSET);
 		 	status = -STATUS_FAIL_DOWNLOAD;
 		 	goto cleanup;
 		}
 
-		if(ecu->sendPayload(out_bin, out_bin_len)) {
-			LOGE(TAG, "payload failed to send");
-			status = -STATUS_FAIL_DOWNLOAD;
-			goto cleanup;
+		address = 0;
+		transferSize = sblLength + rom_length - MAZDA_ROM_START_OFFSET;
+		for (bytesTransfered = 0; address < transferSize; address += chunkSize, writePayload += chunkSize) {
+			status = ecu->transferData(chunkSize, writePayload);
+			bytesTransfered += chunkSize;
+			if (bytesTransfered <= sblLength) {
+				printProgress(bytesTransfered, sblLength);
+				if (status == 0x78) {
+					resetProgress();
+					LOGI(TAG, "kernel transfered");
+					continue;
+				}
+			} else {
+				printProgress(bytesTransfered, transferSize);
+				if (status == 0x78) continue;
+			}
+
+			if (status != 0) {
+				LOGE(TAG, "payload failed to send at 0x%08x status=%d", address, status);
+				status = -STATUS_FAIL_DOWNLOAD;
+				goto cleanup;
+			}
 		}
+		status = 0;
 
 		time(&commandEnd);
+		
 		LOGI(TAG, "Successfully uploaded payload. Took %.0lf seconds", difftime(commandEnd,commandStart));
 
 		if(!ecu->requestTransferExit()) {
@@ -414,6 +553,10 @@ cleanup:
 		fflush(transferFile);
 		fclose(transferFile);
 		transferFile = NULL;
+	}
+	if (sblFile) {
+		fclose(sblFile);
+		sblFile = NULL;
 	}
 // TODO: it seems like calling PassThruDisconnect or PassThruClose causes
 //       error inside the J2534 dll. For now, skip it

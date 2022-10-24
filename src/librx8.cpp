@@ -406,7 +406,7 @@ size_t RX8::readMem(uint32_t address, uint16_t chunkSize, char** data)
 	unsigned long numTx = 1, numRx = 1;
 	prepareUDSRequest(_tx_payload, _rx_payload, numTx, numRx);
 	_tx_payload[0].Data[4] = UDS_SID_READ_MEMORY_BY_ADDRESS;
-
+	/*
 	if(address >= 0xffff6000) {
 		_tx_payload[0].Data[5] = 0xff;
 		_tx_payload[0].Data[6] = 0xff;
@@ -414,6 +414,9 @@ size_t RX8::readMem(uint32_t address, uint16_t chunkSize, char** data)
 		_tx_payload[0].Data[5] = 0;
 		_tx_payload[0].Data[6] = 0;
 	}
+	*/
+	_tx_payload[0].Data[5] = 0;
+	_tx_payload[0].Data[6] = address >> 16;
 	_tx_payload[0].Data[7] = address >> 8;
 	_tx_payload[0].Data[8] = address;
 	_tx_payload[0].Data[9] = chunkSize >> 8;
@@ -521,7 +524,7 @@ size_t RX8::requestBootloaderMode()
 7E0#10 09 34 00 00 40 00 00 
 7E0#21 07 F8 00 00 00 00 00
 */
-size_t RX8::requestDownload(uint32_t size)
+size_t RX8::requestDownload(uint16_t chunk_size, uint32_t size)
 {
 	unsigned long numTx = 1, numRx = 1;
 	prepareUDSRequest(_tx_payload, _rx_payload, numTx, numRx);
@@ -570,56 +573,50 @@ size_t RX8::requestDownload(uint32_t size)
 /*
 7E0#14 01 36 9D 6F 4D 0B 00 - 36 - transfer data
 */
-size_t RX8::sendPayload(unsigned char* payload, uint32_t size)
+size_t RX8::transferData(uint32_t chunkSize, unsigned char* data)
 {
-	uint32_t frameIndex = 0;
-	uint32_t chunkSize = 0x401;
 	unsigned long numTx = 1, numRx = 1;
+	prepareUDSRequest(_tx_payload, _rx_payload, numTx, numRx);
+	_tx_payload[0].Data[4] = UDS_SID_TRANSFER_DATA;
+	memcpy(&_tx_payload[0].Data[5], data, chunkSize + 1);
+	_tx_payload[0].DataSize = chunkSize + 1 + 4;
+	int ret = 0;
 
-	while(frameIndex < size) {
-		prepareUDSRequest(_tx_payload, _rx_payload, numTx, numRx);
+	if (_j2534.PassThruWriteMsgs(_chanID, &_tx_payload[0], &numTx, 100)) {
+		LOGE(TAG, "[transferData] failed to write frame");
+		return 1;
+	}
 
-		_tx_payload[0].Data[4] = UDS_SID_TRANSFER_DATA;
-		memcpy(&_tx_payload[0].Data[5], payload+frameIndex, chunkSize);
-		_tx_payload[0].DataSize = chunkSize + 4;
-		
-		if (_j2534.PassThruWriteMsgs(_chanID, &_tx_payload[0], &numTx, 100)) {
-			LOGE(TAG, "[sendPayload] failed to write frame %d", frameIndex);
+	for (;;) {
+		if (_j2534.PassThruReadMsgs(_chanID, &_rx_payload[0], &numRx, 1000)) {
+			LOGE(TAG, "[transferData] failed to read reply frame");
 			return 1;
 		}
 
-		for(;;) {
-			if (_j2534.PassThruReadMsgs(_chanID, &_rx_payload[0], &numRx, 1000)) {
-				LOGE(TAG, "[sendPayload] failed to read reply frame %d", frameIndex);
+		if (numRx) {
+			if (_rx_payload[0].RxStatus & START_OF_MESSAGE) continue;
+			if (_rx_payload[0].Data[3] == MAZDA_REQUEST_CANID_LSB) continue;
+			if ((_rx_payload[0].Data[3] == MAZDA_RESPONSE_CANID_LSB) && (_rx_payload[0].Data[4] == UDS_NEGATIVE_RESPONSE)) {
+				if (_rx_payload[0].Data[6] == 0x78) ret = 0x78; continue;
+				LOGE(TAG, "[transferData] unknown error sending frame");
+				dump_msg(&_rx_payload[0]);
 				return 1;
 			}
-			if(numRx) {
-				if (_rx_payload[0].RxStatus & START_OF_MESSAGE) continue;
-				if (_rx_payload[0].Data[3] == MAZDA_REQUEST_CANID_LSB) continue;
-				if ((_rx_payload[0].Data[3] == MAZDA_RESPONSE_CANID_LSB) && (_rx_payload[0].Data[4] == UDS_NEGATIVE_RESPONSE)) {
-					if(_rx_payload[0].Data[6] == 0x78) continue; 
-						LOGE(TAG, "[sendPayload] unknown error sending frame %d", frameIndex);
-						dump_msg(&_rx_payload[0]);
-						return 1;
-					}
 
-					if (_rx_payload[0].Data[3] == MAZDA_RESPONSE_CANID_LSB) {
-						if(_rx_payload[0].Data[4] != 0x76) {
-							LOGE(TAG, "[sendPayload] error sending frame");
-							return 1;
-						}
-						break;
-					}
-
-					LOGE(TAG, "[sendPayload] unexpected reply");
-					dump_msg(&_rx_payload[0]);
+			if (_rx_payload[0].Data[3] == MAZDA_RESPONSE_CANID_LSB) {
+				if (_rx_payload[0].Data[4] != 0x76) {
+					LOGE(TAG, "[transferData] error sending frame");
+					hexdump_msg(&_rx_payload[0]);
+					return 1;
+				}
+				return ret;
 			}
+
+			LOGE(TAG, "[transferData] unexpected reply");
+			dump_msg(&_rx_payload[0]);
 		}
-		frameIndex+=0x400;
-		//frameIndex+=0xff;
 	}
-	// unreachable
-	return 0;
+	return 1;
 }
 
 size_t RX8::requestTransferExit()

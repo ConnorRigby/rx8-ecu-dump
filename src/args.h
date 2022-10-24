@@ -56,8 +56,13 @@ typedef struct transfer_params {
 	uint32_t transferSize;
 } transfer_params_t;
 
-typedef union ecudump_params {
+typedef struct writemem_params {
+	char SBLfileName[255];
+} writemem_params_t;
+
+typedef struct ecudump_params {
 	transfer_params_t transfer;
+	writemem_params_t write;
 } ecudump_params_t; 
 
 typedef struct ecudump_args {
@@ -65,6 +70,7 @@ typedef struct ecudump_args {
 	char fileName[255];
 	bool verbose;
 	bool overwrite;
+	bool dryRun;
 	ecudump_params_t params;
 } ecudump_args_t;
 
