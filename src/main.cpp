@@ -197,43 +197,6 @@ int main(int argc, char** argv)
 	unsigned char* writePayload = NULL;
 
 	ecudump_cmd_t command = args.command;
-	/*
-	FILE* payload_file = fopen("sbl.bin", "wb");
-	fwrite(bootloader_bin, 1, bootloader_bin_len, payload_file);
-	fflush(payload_file);
-	fclose(payload_file);
-	return 1;
-	*/
-
-	/*
-	size_t new_payload_len = bootloader_bin_len + rom_bin_len;
-	assert(new_payload_len == out_bin_len);
-	unsigned char* new_payload = (unsigned char*)malloc(new_payload_len);
-	assert(new_payload != NULL);
-	memcpy(new_payload, bootloader_bin, bootloader_bin_len);
-	memcpy(new_payload + bootloader_bin_len, rom_bin, rom_bin_len);
-	FILE* payload_file = fopen("payload.bin", "wb");
-	fwrite(new_payload, 1, new_payload_len, payload_file);
-	fflush(payload_file);
-	fclose(payload_file);
-	fprintf(stderr, "wrote %0x08x bytes to payload.bin\n", new_payload_len);
-	return 0;
-	*/
-	/*
-	assert(new_payload_len == out_bin_len);
-	for (int i = 0; i < bootloader_bin_len; i++) {
-		assert(new_payload[i] == bootloader_bin[i]);
-		assert(new_payload[i] == out_bin[i]);
-	}
-	for (int i = 0; i < rom_bin_len; i++) {
-		//if(payload[i] != rom_bin[i])
-		assert(new_payload[bootloader_bin_len + i] == rom_bin[i]);
-	}
-	fprintf(stderr, "assertions passed?\n");
-	//return 0;
-	*/
-
-
 
 	if(args.verbose) {
 		decomposeArgs(&args);
@@ -242,13 +205,13 @@ int main(int argc, char** argv)
 							"\t  end=0x%08x\n"
 							"\t  chunksize=0x%08x\n"
 							"\t  transfersize=0x%08x\n"
-			                "\t  numchunks=%f\n"
+			        "\t  numchunks=%f\n"
 							"\t  remainder=0x%08x\n",
 							address,
 							endAddress,
 							chunkSize,
 							transferSize,
-						    numChunks,
+						  numChunks,
 							chunkRemainder
 		);
 	}
@@ -264,7 +227,7 @@ int main(int argc, char** argv)
 	}
 	LOGI(TAG, "j2534 connection initialized ok");
 
-	ecu = new RX8(j2534, devID, chanID);
+	ecu = new RX8(&j2534, devID, chanID);
 
 	if(_GET_VIN(command)) {
 		if (ecu->getVIN(&vin)) {
@@ -283,19 +246,20 @@ int main(int argc, char** argv)
 		}
 		LOGI(TAG, "Got calibration ID = %s", calibrationID);
 	}
+	if(_DIAG(command)) {
+		if (!ecu->initDiagSession(MAZDA_SBF_SESSION_81)) {
+			LOGE(TAG, "failed to init diag session 81");
+			status = -STATUS_FAIL_DIAG;
+			goto cleanup;
+		}
 
-	if (!ecu->initDiagSession(MAZDA_SBF_SESSION_81)) {
-		LOGE(TAG, "failed to init diag session 81");
-		status = -STATUS_FAIL_DIAG;
-		goto cleanup;
+		if (!ecu->initDiagSession(MAZDA_SBF_SESSION_85)) {
+			LOGE(TAG, "failed to init diag session 85");
+			status = -STATUS_FAIL_DIAG;
+			goto cleanup;
+		}
+		LOGI(TAG, "Diag sesion initialized ok");
 	}
-
-	if (!ecu->initDiagSession(MAZDA_SBF_SESSION_85)) {
-		LOGE(TAG, "failed to init diag session 85");
-		status = -STATUS_FAIL_DIAG;
-		goto cleanup;
-	}
-	LOGI(TAG, "Diag sesion initialized ok");
 	
 	if(_GET_SEED(command)) {
 		if (ecu->getSeed(&seed)) {
@@ -330,7 +294,7 @@ int main(int argc, char** argv)
 		assert(strlen(calibrationID) > 0);
 		assert(strlen(vin) + 1 + strlen(calibrationID) + 3 < 255);
 
-		if(args.fileName[0] == NULL) {
+		if(args.fileName[0] == 0) {
 			// example: JM1FE173370212600-N3M5EF00013H6020.bin
 			strcpy(transferFilename, vin);
 			strcpy(transferFilename + strlen(vin), "-");
@@ -381,7 +345,7 @@ int main(int argc, char** argv)
 		);
 		for(bytesTransfered=0; address < endAddress; address+=chunkSize, bytesTransfered+=chunkSize, transferBuffer+=chunkSize) {
 			assert(endAddress > address);
-			if (ecu->readMem(address, chunkSize, &transferBuffer))
+			if (ecu->readMem(address, chunkSize, transferBuffer))
 				break;
 			//if(address > chunkSize) return -1;
 			//fwrite(transferBuffer, chunkSize, 1, transferFile);
@@ -389,7 +353,7 @@ int main(int argc, char** argv)
 		}
 
 		if(chunkRemainder > 0) {
-			if (ecu->readMem(address, chunkRemainder, &transferBuffer)) {
+			if (ecu->readMem(address, chunkRemainder, transferBuffer)) {
 				LOGE(TAG, "Failed to read remainder of memory %04X", address);
 				status = -STATUS_FAIL_DOWNLOAD;
 				goto cleanup;
@@ -499,7 +463,7 @@ int main(int argc, char** argv)
 			goto cleanup;
 		}
 		
-		if(!ecu->requestDownload(chunkSize, sblLength + rom_length - MAZDA_ROM_START_OFFSET)) {
+		if(!ecu->requestDownload(address, sblLength + rom_length - MAZDA_ROM_START_OFFSET)) {
 		 	LOGE(TAG, "Could not enter request download mode chunksize=%08x payload=%08x", chunkSize, sblLength + rom_length - MAZDA_ROM_START_OFFSET);
 		 	status = -STATUS_FAIL_DOWNLOAD;
 		 	goto cleanup;

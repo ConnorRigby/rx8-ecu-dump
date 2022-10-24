@@ -27,7 +27,8 @@ limitations under the License.
 
 static const uint16_t ECUDUMP_GET_VIN       = 0b1000000000000000;
 static const uint16_t ECUDUMP_GET_CALID     = 0b0100000000000000;
-static const uint16_t ECUDUMP_SEED          = 0b0010000000000000;
+static const uint16_t ECUDUMP_DIAG          = 0b0010000000000000;
+static const uint16_t ECUDUMP_SEED          = 0b0001000000000000;
 static const uint16_t ECUDUMP_CALCULATE_KEY = 0b0011000000000000;
 static const uint16_t ECUDUMP_UNLOCK        = 0b0011100000000000;
 static const uint16_t ECUDUMP_READ_MEM      = 0b1111110000000000;
@@ -35,11 +36,12 @@ static const uint16_t ECUDUMP_WRITE_MEM     = 0b1111101000000000;
 
 #define _GET_VIN(COMMAND)       ((COMMAND >> 15) & 1)
 #define _GET_CALID(COMMAND)     ((COMMAND >> 14) & 1)
-#define _GET_SEED(COMMAND)      ((COMMAND >> 13) & 1)
+#define _DIAG(COMMAND)          ((COMMAND >> 13) & 1)
+#define _GET_SEED(COMMAND)      ((COMMAND >> 12) & 1)
 #define _CALCULATE_KEY(COMMAND) ((COMMAND >> 12) & 1)
 #define _UNLOCK(COMMAND)        ((COMMAND >> 11) & 1)
-#define _READ_MEM(COMMAND)    ((COMMAND >> 10) & 1)
-#define _WRITE_MEM(COMMAND)  ((COMMAND >>  9) & 1)
+#define _READ_MEM(COMMAND)      ((COMMAND >> 10) & 1)
+#define _WRITE_MEM(COMMAND)     ((COMMAND >>  9) & 1)
 
 typedef uint16_t ecudump_cmd_t;
 

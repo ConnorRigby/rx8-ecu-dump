@@ -283,6 +283,10 @@ size_t getCommandArgs(int argc, char** argv, ecudump_args_t* args)
       }
   }
   else if (_WRITE_MEM(command)) {
+      if (args->params.transfer.startAddress == 0) {
+          if (args->verbose) fprintf(stderr, "[writemem] using default start address 0x%08x\n", 0x400000);
+          args->params.transfer.startAddress = 0x400000;
+      }
       if (args->params.transfer.chunkSize == 0) {
           if (args->verbose) fprintf(stderr, "[writemem] using default chunk size 0x%08x\n", 0x400);
           args->params.transfer.chunkSize = 0x400;
