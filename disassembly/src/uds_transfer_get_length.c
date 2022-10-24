@@ -31,6 +31,8 @@ int main(int argc, char const *argv[])
   printf("uds_transfer_start_ptr=%08x\n\n", uds_transfer_start_ptr);
 
   chunk_size = uds_transfer_get_length(payload + 5);
+  printf("transfer length=%08x\n\n", chunk_size);
+
   int uds_transfer_bytes_remaining = chunk_size - 0x7e000;
   int uds_transfer_address = uds_transfer_start_ptr;
   if ((0 < uds_transfer_bytes_remaining) /* &&

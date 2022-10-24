@@ -5,7 +5,6 @@
             <ARRAY NAME="EXPANDED_PATHS" TYPE="string">
                 <A VALUE="RX8:Equinox92:" />
                 <A VALUE="RX8:" />
-                <A VALUE="RX8:SE3P131474-N3K1EU00013SN020:" />
             </ARRAY>
             <STATE NAME="SHOW_TABLE" TYPE="boolean" VALUE="false" />
         </SAVE_STATE>
