@@ -17,7 +17,7 @@ size_t uds_request_send(uds_request_t* request)
     request->length + // payload length
     1 +               // sid
     4;                // CANID
-  request->txBuffer[0].Data[4] = request->sid;
+  request->txBuffer[0].Data[4] = (uint8_t)request->sid;
 
   // nulify these fields
   request->payload = NULL;

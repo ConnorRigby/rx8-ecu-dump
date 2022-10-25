@@ -23,6 +23,7 @@ void reportJ2534Error(J2534 j2534);
 void dump_msg(PASSTHRU_MSG* msg);
 void hexdump_msg(PASSTHRU_MSG* msg);
 void hexdump(void *ptr, size_t buflen);
+void sleep_ms(int milliseconds);
 
 #ifdef WIN32
 // Windows console doesn't support colors

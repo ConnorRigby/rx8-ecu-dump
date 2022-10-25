@@ -159,7 +159,6 @@ size_t RX8::getCalibrationID(char** calibrationID)
 		request->length-=2;
 		request->payload+=2;
 
-		hexdump(request->payload+2, request->length-2);
 		assert(request->length == CALIBRATION_ID_LENGTH-1);
 		memcpy(*calibrationID, request->payload, request->length);
 		return 0;
@@ -373,10 +372,8 @@ size_t RX8::readMem(uint32_t address, uint16_t chunkSize, char* data)
 		LOGE(TAG, "[readMem] request failed %s", uds_request_error_string(request, ret));
 		return 1;
 	} else if(request->sid == UDS_SID_READ_MEMORY_BY_ADDRESS_ACK) {
-		debug("l=%08x c=%08x t=%08x", request->length, chunkSize, request->rxBuffer[0].DataSize);
-		
-		assert(request->length == chunkSize + 1);
-		memcpy(data, request->payload+1, chunkSize);
+		assert(request->length == chunkSize);
+		memcpy(data, request->payload, chunkSize);
 		return 0;
 	}
 
@@ -421,7 +418,7 @@ size_t RX8::requestBootloaderMode()
 7E0#10 09 34 00 00 40 00 00 
 7E0#21 07 F8 00 00 00 00 00
 */
-size_t RX8::requestDownload(uint16_t chunk_size, uint32_t size)
+size_t RX8::requestDownload(uint32_t address, uint32_t size)
 {
 	if(!request) return 0;
 	size_t ret = 0;
@@ -432,23 +429,25 @@ size_t RX8::requestDownload(uint16_t chunk_size, uint32_t size)
 	}
 
 	request->sid        = UDS_SID_REQUEST_DOWNLOAD;
-	request->payload[0] = 0x0;
-	request->payload[1] = chunk_size >> 24;
-	request->payload[2] = chunk_size >> 16;
-	request->payload[3] = chunk_size;
-	request->payload[4] = size >> 24;
+	request->payload[0] = 0;
+	request->payload[1] = address >> 24;
+	request->payload[2] = address >> 16;
+	request->payload[3] = address >> 8;
+	request->payload[4] = address;
 	request->payload[5] = size >> 16;
 	request->payload[6] = size >> 8;
-	request->payload[7] = size >> 0;
+	request->payload[7] = size;
 	request->length     = 8;
 
 	ret = uds_request_send(request);
 	if(ret == UDS_ERROR_NEGATIVE_RESPONSE) {
 		LOGE(TAG, "[requestDownload] request failed %s", uds_request_negative_response_error_string(request));
+		return 0;
 	} else if(ret) {
 		LOGE(TAG, "[requestDownload] request failed %s", uds_request_error_string(request, ret));
+		return 0;
 	} else {
-		assert(request->length == 0x4);
+		assert(request->length == 0x2);
 		return (request->sid == UDS_SID_REQUEST_DOWNLOAD_ACK);
 	}
 
@@ -470,14 +469,16 @@ size_t RX8::transferData(uint32_t chunkSize, unsigned char* data)
 	}
 
 	request->sid    = UDS_SID_TRANSFER_DATA;
-	request->length = chunkSize + 1; 
-	memcpy(request->payload, data, chunkSize + 1);
+	request->length = chunkSize; 
+	memcpy(request->payload, data, chunkSize);
 
 	ret = uds_request_send(request);
 	if(ret == UDS_ERROR_NEGATIVE_RESPONSE) {
 		LOGE(TAG, "[transferData] request failed %s", uds_request_negative_response_error_string(request));
+		return 1;
 	} else if(ret) {
 		LOGE(TAG, "[transferData] request failed %s", uds_request_error_string(request, ret));
+		return 1;
 	} else {
 		return !(request->sid == UDS_SID_TRANSFER_DATA_ACK);
 	}

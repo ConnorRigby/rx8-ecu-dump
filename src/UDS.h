@@ -29,11 +29,11 @@ static const uint8_t UDS_RESPONSE_CANID_LSB = 0xE8;
 
 // number of tx PASSTHRU_MSG structs to keep around
 static const uint8_t TX_BUFFER_LEN = 5;
-static const uint8_t TX_TIMEOUT = 100;
+static const size_t TX_TIMEOUT = 1000;
 
 // number of rx PASSTHRU_MSG structs to keep around
 static const size_t RX_BUFFER_LEN = 5;
-static const size_t RX_TIMEOUT = 200;
+static const size_t RX_TIMEOUT = 1000;
 
 static const uint8_t UDS_SID_SESSION                  = 0x10;
 static const uint8_t UDS_SID_SESSION_ACK              = UDS_SID_SESSION + OBD2_ACK_OFFSET;
@@ -45,7 +45,7 @@ static const uint8_t UDS_SID_SECURITY                 = 0x27;
 static const uint8_t UDS_SID_SECURITY_ACK             = UDS_SID_SECURITY + OBD2_ACK_OFFSET;
 static const uint8_t UDS_SID_COMMUNICATION_CONTROL    = 0x28;
 static const uint8_t UDS_SID_REQUEST_DOWNLOAD         = 0x34;
-static const uint8_t UDS_SID_REQUEST_DOWNLOAD_ACK     = UDS_SID_SECURITY + OBD2_ACK_OFFSET;;
+static const uint8_t UDS_SID_REQUEST_DOWNLOAD_ACK     = UDS_SID_REQUEST_DOWNLOAD + OBD2_ACK_OFFSET;;
 static const uint8_t UDS_SID_TRANSFER_DATA            = 0x36;
 static const uint8_t UDS_SID_TRANSFER_DATA_ACK        = UDS_SID_TRANSFER_DATA + OBD2_ACK_OFFSET;
 static const uint8_t UDS_SID_REQUEST_TRANSFER_EXIT    = 0x37;

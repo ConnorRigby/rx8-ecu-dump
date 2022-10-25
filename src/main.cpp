@@ -309,7 +309,7 @@ int main(int argc, char** argv)
 		if (args.overwrite) {
 			if (access(transferFilename, F_OK) == 0) {
 				LOGE(TAG, "Removing old file %s", transferFilename);
-				if(remove(args.fileName) != 0) {
+				if(remove(transferFilename) != 0) {
 					LOGE(TAG, "Could not remove old file %s", strerror(errno));
 					status = -errno;
 					goto cleanup;
@@ -343,15 +343,12 @@ int main(int argc, char** argv)
 					endAddress,
 					transferFilename
 		);
-		for(bytesTransfered=0; address < endAddress; address+=chunkSize, bytesTransfered+=chunkSize, transferBuffer+=chunkSize) {
+		for (bytesTransfered = 0; address < endAddress; address += chunkSize, bytesTransfered += chunkSize, transferBuffer += chunkSize) {
 			assert(endAddress > address);
 			if (ecu->readMem(address, chunkSize, transferBuffer))
 				break;
-			//if(address > chunkSize) return -1;
-			//fwrite(transferBuffer, chunkSize, 1, transferFile);
 			printProgress(bytesTransfered, transferSize);
 		}
-
 		if(chunkRemainder > 0) {
 			if (ecu->readMem(address, chunkRemainder, transferBuffer)) {
 				LOGE(TAG, "Failed to read remainder of memory %04X", address);
@@ -366,16 +363,6 @@ int main(int argc, char** argv)
 			LOGE(TAG, "Only transfered %08X / %08X bytes", bytesTransfered, transferSize);
 		}
 		bytesTransfered = fwrite(transferBuffer-transferSize, transferSize, 1, transferFile);
-
-// #if defined(_WIN32) || defined(WIN32) || defined (_WIN64) || defined (WIN64)
-// 		// fwrite on windows returns the write count, not the number of bytes written.
-// 		if(bytesTransfered > 0)
-// 			bytesTransfered *= transferSize;
-// #endif
-
-// 		if (bytesTransfered != transferSize) {
-// 			LOGE(TAG, "Only wrote %08X / %08X bytes", bytesTransfered, transferSize);
-// 		}
 
 		fflush(transferFile);
 		time(&commandEnd);
@@ -476,17 +463,15 @@ int main(int argc, char** argv)
 			bytesTransfered += chunkSize;
 			if (bytesTransfered <= sblLength) {
 				printProgress(bytesTransfered, sblLength);
-				if (status == 0x78) {
+				if (bytesTransfered == sblLength) {
 					resetProgress();
 					LOGI(TAG, "kernel transfered");
-					continue;
 				}
 			} else {
 				printProgress(bytesTransfered, transferSize);
-				if (status == 0x78) continue;
 			}
 
-			if (status != 0) {
+			if (status) {
 				LOGE(TAG, "payload failed to send at 0x%08x status=%d", address, status);
 				status = -STATUS_FAIL_DOWNLOAD;
 				goto cleanup;
@@ -509,6 +494,28 @@ int main(int argc, char** argv)
 			status = -STATUS_FAIL_RESET;
 			goto cleanup;
 		}
+
+		LOGI(TAG, "ECU Reset. Waiting..");
+		sleep_ms(3000);
+		
+		if (vin) free(vin);
+		vin = NULL;
+
+		if (ecu->getVIN(&vin)) {
+			LOGE(TAG, "ECU not responding! Sowey!");
+			status = -STATUS_FAIL_VINCHECK;
+			goto cleanup;
+		}
+		LOGI(TAG, "Got VIN = %s", vin);
+
+		if (calibrationID) free(calibrationID);
+		calibrationID = NULL;
+		if (ecu->getCalibrationID(&calibrationID)) {
+			LOGE(TAG, "failed to get Calibration ID");
+			status = -STATUS_FAIL_CALID;
+			goto cleanup;
+		}
+		LOGI(TAG, "Got calibration ID = %s", calibrationID);
 
 		status = 0;
 	}

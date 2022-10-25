@@ -76,7 +76,7 @@ public:
 	/** Puts the ECU into bootloader mode. this allows requestDownload to work */
 	size_t requestBootloaderMode();
 
-	size_t requestDownload(uint16_t chunkSize, uint32_t size);
+	size_t requestDownload(uint32_t address, uint32_t size);
 
 	size_t transferData(uint32_t chunkSize, unsigned char* data);
 	
@@ -84,6 +84,3 @@ public:
 
 	size_t reset();
 };
-
-// clears the tx and rx buffers for use in a single request/response cycle
-static size_t prepareUDSRequest(PASSTHRU_MSG* tx_buffer, PASSTHRU_MSG* rx_buffer, size_t numTx, size_t numRx);

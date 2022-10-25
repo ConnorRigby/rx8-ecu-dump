@@ -22,6 +22,9 @@
     <ClCompile Include="lib\getopt\getopt.c">
       <Filter>Src</Filter>
     </ClCompile>
+    <ClCompile Include="src\UDS.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Docs">
