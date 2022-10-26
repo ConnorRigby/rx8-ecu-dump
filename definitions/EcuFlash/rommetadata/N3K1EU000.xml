@@ -7,19 +7,19 @@
 		<ecuid>N3K1EU000</ecuid>
 		<make>Mazda</make>
 		<market>JDM</market>
-		<model>RX-8</model>
+		<model>RX8</model>
 		<transmission>5MT</transmission>
 		<year>2005</year>
-		<flashmethod>none</flashmethod>
+		<flashmethod>rxprog</flashmethod>
 		<memmodel>SH7055</memmodel>
-		<checksummodule>21053000</checksummodule>
+		<checksummodule>subarudbw</checksummodule>
 	</romid>
 
-	<scaling name="0x68704" toexpr="x*2" frexpr="x/2" format="%d" inc="1" storagetype="uint8" endian="big"/>
-	<scaling name="0x68704_Y" toexpr="x" frexpr="x" format="%0.2f" inc="1" storagetype="float" endian="big"/>
+	<scaling name="882208" toexpr="x" frexpr="x" format="%d" min="720" max="1150" inc="10" storagetype="uint16" endian="big"/>
+	<scaling name="ECT" toexpr="x" frexpr="x" format="%0.0f" min="-40" max="100" inc="10" storagetype="float" endian="big"/>
 
-	<table name="Record 0x68704" category="Unknown 2D" address="6c7a4" type="2D" level="1" elements="16" scaling="0x68704">
-		<table name="Record 0x68704 Y" address="6c7e4" type="Y Axis" elements="16" scaling="0x68704_Y"/>
+	<table name="Idle Target RPM" category="Idle" address="6da68" type="2D" level="4" swapxy="true" elements="7" scaling="882208">
+		<table name="ECT" address="6da4c" type="Y Axis" elements="7" scaling="882240"/>
 	</table>
 
 </rom>
