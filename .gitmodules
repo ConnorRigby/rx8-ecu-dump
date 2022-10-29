@@ -4,3 +4,6 @@
 [submodule "disassembly/nissutils"]
 	path = disassembly/nissutils
 	url = git@github.com:fenugrec/nissutils.git
+[submodule "rxkern"]
+	path = rxkern
+	url = git@github.com:connorrigby/rxkern.git
