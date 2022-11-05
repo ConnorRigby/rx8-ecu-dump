@@ -131,11 +131,7 @@ void J2534::dbgprint(const char* Format, ...)
 		buffer[sizeof(buffer) - 1] = '\0';
 	}
 
-#if defined(_WIN32) || defined(WIN32) || defined (_WIN64) || defined (WIN64)
-    OutputDebugStringA(buffer);
-#else
     printf("%s",buffer);
-#endif
 	va_end(arglist);
 }
 
@@ -183,6 +179,7 @@ void J2534::dbgprintptmsg(const PASSTHRU_MSG *pMsg,int kind)
 
 long J2534::LoadJ2534DLL(const char* szDLL)
 {
+	DBGPRINT(("LoadJ2534DLL OP20PT32_USE_LIB\n"));
 #if defined(OP20PT32_USE_LIB)
     szDLL; // unused
 	if (!hDLL)
@@ -194,6 +191,7 @@ long J2534::LoadJ2534DLL(const char* szDLL)
 #endif
 	getPTfns();
 #else
+	DBGPRINT(("LoadJ2534DLL\n"));
 
     if (szDLL == NULL)
     {
@@ -204,6 +202,7 @@ long J2534::LoadJ2534DLL(const char* szDLL)
 #if defined(_WIN32) || defined(WIN32) || defined (_WIN64) || defined (WIN64)
 	if (!(hDLL = LoadLibraryA(szDLL)))
 	{
+		DBGPRINT(("Could lot load library %s %d\n", szDLL, GetLastError()));
 		strcpy(lastError,"error loading J2534 DLL");
 		return false;
 	}
@@ -253,7 +252,7 @@ long J2534::LoadJ2534DLL(const char* szDLL)
 	}
 	chdir(oldPath);
 #else
-	if(!(hDLL = dlopen("lib/j2534/j2534/j2534.so", RTLD_LOCAL|RTLD_LAZY)))
+	if(!(hDLL = dlopen(dllName, RTLD_LOCAL|RTLD_LAZY)))
 	{
 		strcpy(lastError,"error loading dll");
 		return false;
@@ -275,9 +274,20 @@ long J2534::LoadJ2534DLL(const char* szDLL)
 
 bool J2534::checkDLL()
 {
+	DBGPRINT(("checkDLL.\n"));
 	if (!hDLL)
 		LoadJ2534DLL(dllName);
 	return (hDLL != NULL);
+}
+
+bool J2534::getDLLName(char* dll)
+{
+	if (dllName) {
+		strncpy(dll, dllName, strlen(dllName));
+	}
+	else {
+		return false;
+	}
 }
 
 long J2534::PassThruOpen(const void *pName, unsigned long *pDeviceID)

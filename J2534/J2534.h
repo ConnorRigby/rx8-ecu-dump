@@ -20,19 +20,16 @@
 
 #define DBGPRINT(args_in_parens)                                \
     {                                               \
-		if (debugMode)	\
 			dbgprint args_in_parens; \
     }
 
 #define DBGDUMP(args_in_parens)                                \
     {                                               \
-		if (debugMode)	\
 			dbgdump args_in_parens; \
     }
 
 #define DBGPRINTPT(args_in_parens)                                \
     {                                               \
-		if (debugMode)	\
 			dbgprintptmsg args_in_parens; \
     }
 
@@ -43,6 +40,7 @@ public:
 	~J2534(void);
 	bool init() { return checkDLL(); };
 	void setDllName(const char* name);
+	bool getDLLName(char* dllName);
 	bool valid();
 	void debug(bool enable) { debugMode = enable; };
 	char* getLastError();
